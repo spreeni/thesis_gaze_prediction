@@ -14,7 +14,7 @@ from pytorchvideo.data.video import VideoPathHandler
 from pytorchvideo.data.utils import MultiProcessSampler
 
 from videos_observers_paths import VideosObserversPaths
-from utils import read_label_file
+import utils
 
 logger = logging.getLogger(__name__)
 
@@ -100,13 +100,52 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         return self._video_observer_sampler
 
     @property
-    # TODO: Needs to be adjusted
+    def num_video_observer_combinations(self):
+        """
+        Returns:
+            Number of video-observer combinations in dataset.
+        """
+        return len(self._video_and_label_paths)
+
+    @property
     def num_videos(self):
         """
         Returns:
             Number of videos in dataset.
         """
-        return len(self.video_sampler)
+        return len({video_path for video_path, _ in self._video_and_label_paths})
+
+    @property
+    def num_observers(self):
+        """
+        Returns:
+            Number of observers in dataset.
+        """
+        return len({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
+
+    @property
+    def video_observer_combinations(self) -> List[Tuple[str, str]]:
+        """
+        Returns:
+            List of video-observer combinations in dataset.
+        """
+        return self._video_and_label_paths
+
+    @property
+    def videos(self) -> List[str]:
+        """
+        Returns:
+            List of videos in dataset.
+        """
+        return list({video_path for video_path, _ in self._video_and_label_paths})
+
+    @property
+    def observers(self) -> List[str]:
+        """
+        Returns:
+            List of observers in dataset.
+        """
+        return list({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
 
     def __next__(self) -> dict:
         """
@@ -119,11 +158,14 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
                 {
                     'video': <video_tensor>,
-                    'label': <index_label>,
-                    'video_label': <index_label>
+                    'video_name': <video_name>,
                     'video_index': <video_index>,
                     'clip_index': <clip_index>,
                     'aug_index': <aug_index>,
+                    'observer': <observer_abbreviation>,
+                    'frame_labels': <label_tensor>
+                    'em_data': <em_label_tensor> (optional)
+                    'audio': <audio_data> (optional)
                 }
         """
         if not self._video_sampler_iter:
@@ -147,7 +189,8 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                     self._loaded_video_label = (video, label_path, video_index)
 
                     # Load frame labels and em phase data from label file
-                    self._loaded_frame_labels, self._loaded_em_data = read_label_file(label_path)
+                    self._loaded_frame_labels, self._loaded_em_data = utils.read_label_file(label_path,
+                                                                                            with_video_name=True)
 
                 except Exception as e:
                     logger.debug(
@@ -194,6 +237,9 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
             frames = self._loaded_clip["video"]
             frame_indices = self._loaded_clip["frame_indices"]
             audio_samples = self._loaded_clip["audio"]
+            observer = utils.get_observer_from_label_path(label_path)
+            em_data = torch.tensor(self._loaded_em_data, dtype=torch.int)[
+                frame_indices] if self._loaded_em_data else None
 
             sample_dict = {
                 "video": frames,
@@ -201,11 +247,11 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 "video_index": video_index,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
+                "observer": observer,
                 "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.int)[frame_indices],
+                **({"em_data": em_data} if em_data is not None else {}),
                 **({"audio": audio_samples} if audio_samples is not None else {}),
             }
-            if self._loaded_em_data:
-                sample_dict["em_data"] = torch.tensor(self._loaded_em_data, dtype=torch.int)[frame_indices]
 
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
