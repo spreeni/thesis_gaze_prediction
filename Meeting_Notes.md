@@ -1,0 +1,98 @@
+- 13.10.21
+    - Wie weit weg, wieviel Grad nimmt ein Pixel ein?
+        - DVA Pixel to angle conversion
+    - Mögliche Kombination RIM/Neural Processes → Trajektorien
+    - Problemstellung: Wie kriegt man Stochastizität in RIMs?
+    - Google Doc zum Sammeln von Fragen
+    - IM - Objekt/Aufgaben
+    - Für Feature Pre-processing möglicherweise pretrained ResNet
+    - Mögliche Output-Formate: direkt Verteilung, Grids, konkreter Blickpunkt
+- 20.10.21
+    - Nico macht vielleicht
+        - Eye-movement classification
+        - Script zum Laden von eye-tracking Ergebnissen
+    - Aufbauen auf vorhandenem Code macht Sinn
+    - Erstes Starten mit Code-Implementierung
+        - Dataloader
+            - Kombination Video-Daten mit Eye-Tracking, und EM-Klassifikation
+                - EM-Klassifikation von [https://michaeldorr.de/smoothpursuit/](https://michaeldorr.de/smoothpursuit/)
+        - naives RIM
+    - Beim Kopieren von fremden Repositories Anmerken in erster Zeile
+    - Mögliche Teilarbeit: Verschiedene Datensätze standardisieren
+        - PySaliency (Tübingen, Matthias)
+    - Visual Angle vielleicht nicht sinnvoll?
+        - Approximation
+        - Saliency Maps auf Pixeln
+    - Pytorch Lightning
+        - Wrapper mit Parallelisierung
+    - Nutzen von Issue-Funktionen in Github
+        - Label "help wanted" für Nico/Heiner
+    - Heiner: Ruhig mit kleinerem Datenset anfangen, um zu gucken ob das Model funktioniert
+- 22.10.21 (Nico Group Talk)
+    - NN-saliency: Molin et al 2015, Chang et al 2021
+    - Scanpath static: Tatler et al 2017, Schwetlick et al 2020
+    - Scanpath in dynamic scenes: Huang et al (2018)
+    - End-to-End scanpath → my thesis
+    - Nico: Not end-to-end
+    - Bottom-up saliency (White et al 2019)
+    - One of the most influential scanpath models of all time (Itti el at 1998)
+        - saliency + inhibition of return
+    - Visual sensitivity (Falk et al 1986)
+    - Object-based sensitivity (Egly et al 1994)
+    - Object-based selection (Nuthmann & Henderson 2010)
+        - not centered around most salient point, but centered around center of object
+    - Central fixation bias (Tatler 2007)
+        - observers tend to look at center of screen
+    - Needed to discard videos where object tracking is not reliable
+    - record eye tracking for UVO dataset (object masks given)
+        - Test ObjectDDM
+    - PixelDDM
+        - Inhibition around previously fixated point
+    - decomposition of scanpaths Linka & de Haas 2021
+        - detections
+        - inspections
+        - revisits
+        - background
+        
+        → could be checked if there are neural differences in fMRI/EEG
+        
+    - neurolib (Cakan et al 2021)
+        - Python framework for brain modeling
+    - Database construction with full control over scenes & tasks
+        - Miniature railway scene
+- 27.10.21
+    - Bumblebee-Video kürzer (und "blöder")
+        - vielleicht rausschmeißen
+    - Observer rausgeben (beim Dataset)
+    - Frames + EM → gaze
+    - Frames → gaze + EM (**Ziel**)
+    - Frames + gaze → EM
+    - Visualisierungen erstellen
+        - Frames + raw gaze data (mit EM-labels)
+        - Frames + avg gaze data (mit EM-labels)
+    - Majority-vote
+        - Saccades sehr kurz → vllt immer priorisieren
+- 03.11.21
+    - Dokumente teilen (Github issues, Google Doc, Notion Markdown exportieren)
+    - Im Repository auch Zwischenstände einchecken
+    - Averagen für Augenbewegungen problematisch?
+        - für Kurven problematisch
+        - Abstand zu mean berechnen → Große Abstände?
+    - Nico: Lieber Hz beim Averagen nehmen - da Eye-Tracker möglicherweise länger läuft
+    - png anstatt jpg nutzen wegen Kompression
+    - Visualisierung von averages und Labels priorisieren
+    - GazeCom Framerate überprüfen (Bei Yannic verschieden angezeigt)
+    - ResNets nicht als Teil des Models, sondern Features vorher abspeichern
+        - Features aus verschiedenen Layern nehmen
+        - SqueezeNet?
+        - Layers aus Anfang, Mitte, Ende
+        - 2D, nicht 3D → temporale Komponente den RIMs überlassen
+            - Bei 3D müssten Windows definiert werden und sichergestellt werden, dass
+        - Räumliche Komponente muss erhalten bleiben
+    - Server-Zugriff zum Trainieren klären
+    - Embedding zwischenschalten falls Dimensionen zu groß werden
+    - Plan für nächstes Meeting
+        - Visualisierung von Averaging
+        - Pre-processing von Features in ResNets planen
+            - Auf Server ausführen?
+        - Überlegen, wie Notizen/TODOs am besten geteilt werden können
