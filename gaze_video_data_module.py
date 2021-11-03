@@ -17,20 +17,31 @@ from pytorchvideo.transforms import (
 from torchvision.transforms import (
     Compose,
     Lambda,
-    RandomCrop,
-    RandomHorizontalFlip
+    RandomHorizontalFlip,
+    Grayscale
 )
 
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 
 
 class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
-    # Dataset configuration
-    _DATA_PATH = root_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames'
-    #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
-    _CLIP_DURATION = 2  # Duration of sampled clip for each video
-    _BATCH_SIZE = 8
-    _NUM_WORKERS = 8  # Number of parallel processes fetching data
+    def __init__(self, data_path, clip_duration=2, batch_size=8, num_workers=8):
+        """
+        Initializes a GazeVideoDataModule which can be used in Pytorch Lightning
+
+        Args:
+            data_path:      Data root directory, should contain a "train" and "val" directory
+            clip_duration:  Duration of sampled clip for each video in seconds
+            batch_size:     Batch size per model run
+            num_workers:    Number of parallel processes fetching data
+        """
+        super().__init__()
+
+        # Dataset configuration
+        self._DATA_PATH = data_path
+        self._CLIP_DURATION = clip_duration
+        self._BATCH_SIZE = batch_size
+        self._NUM_WORKERS = num_workers
 
     def train_dataloader(self):
         """
@@ -46,9 +57,8 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
                             #UniformTemporalSubsample(8),
                             Lambda(lambda x: x / 255.0),
                             Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
-                            #RandomShortSideScale(min_size=256, max_size=320),
-                            #RandomCrop(244),
                             #RandomHorizontalFlip(p=0.5),
+                            #Grayscale()
                         ]
                     ),
                 ),
@@ -59,6 +69,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
             video_sampler=torch.utils.data.RandomSampler,
             transform=train_transform,
+            #transform=None,
             decode_audio=False,
             decoder="pyav",
         )
@@ -70,7 +81,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
 
     def val_dataloader(self):
         """
-        Create the Kinetics validation partition from the list of video labels
+        Create the validation partition from the list of video labels
         in {self._DATA_PATH}/val
         """
         val_transform = Compose(
@@ -82,6 +93,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
                             #UniformTemporalSubsample(8),
                             Lambda(lambda x: x / 255.0),
                             Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                            #Grayscale()
                         ]
                     ),
                 ),
@@ -92,6 +104,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
             video_sampler=torch.utils.data.RandomSampler,
             transform=val_transform,
+            #transform=None,
             decode_audio=False,
             decoder="pyav",
         )
