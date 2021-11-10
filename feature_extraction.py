@@ -1,19 +1,22 @@
 import torch
 import timm
-from torchvision.models import resnet50
-from torchvision.models.feature_extraction import get_graph_node_names
+
 from torchvision.models.feature_extraction import create_feature_extractor
-from torchvision.models.detection.mask_rcnn import MaskRCNN
 from torchvision.models.detection.backbone_utils import LastLevelMaxPool
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork
 
-import numpy as np
 from torchinfo import summary
+
+
+_OUTPUT_CHANNELS = 4
+_BATCH_SIZE = 4
+_INPUT_DIM = (720, 1280)
+
 
 class MobileNetV3WithFPN(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        # Get a resnet50 backbone
+        # Get a MobileNet v3 backbone
         m = timm.create_model('mobilenetv3_large_100', pretrained=True)
 
         # Freeze parameters
@@ -25,7 +28,7 @@ class MobileNetV3WithFPN(torch.nn.Module):
             m, return_nodes={f'blocks.{i}': str(i)
                              for i in range(1, 7)})
         # Dry run to get number of channels for FPN
-        inp = torch.randn(2, 3, 720, 1280)
+        inp = torch.randn(_BATCH_SIZE, 3, *_INPUT_DIM)
         with torch.no_grad():
             out = self.body(inp)
         in_channels_list = [o.shape[1] for o in out.values()]
@@ -39,23 +42,20 @@ class MobileNetV3WithFPN(torch.nn.Module):
     def forward(self, x):
         x = self.body(x)
         x = self.fpn(x)
+
+        # Concatenate all outputs
+        #x = torch.cat([t.flatten(start_dim=1) for t in x.values()], 1)
         return x
 
 
+### Testing the FPN ###
 m = MobileNetV3WithFPN()
-summary(m, input_size=(2, 3, 720, 1280))
+summary(m, input_size=(_BATCH_SIZE, 3, *_INPUT_DIM))
 
-inp = torch.randn(2, 3, 720, 1280)
+inp = torch.randn(_BATCH_SIZE, 3, *_INPUT_DIM)
 out = m(inp)
 
 print("\n".join([f"{l}: {out[l].shape}" for l in out]))
 
-tensors = list(out.values())
-tensors_reshaped = []
-for t in tensors:
-    b, c, h, w = t.shape
-    t = t.reshape(b, c*h*w)
-    tensors_reshaped.append(t)
-
-feature_tensor = torch.cat(tensors_reshaped, 1)
+feature_tensor = torch.cat([t.flatten(start_dim=1) for t in out.values()], 1)
 print(feature_tensor.shape)
