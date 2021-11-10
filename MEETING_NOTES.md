@@ -96,3 +96,16 @@
         - Pre-processing von Features in ResNets planen
             - Auf Server ausführen?
         - Überlegen, wie Notizen/TODOs am besten geteilt werden können
+- 10.11.21
+    - Visualisierung von Labeldaten besprochen
+    - Frames down-skalieren von 720x1280 (GazeCom)
+    - Zu diskutieren: Nur letzten Output von Feature Pyramid oder Stack von Outputs verwenden?
+    - Eye-tracking Daten für GazeCom stimmen nicht immer mit Video-Länge überein
+        - koenigsstrasse/bumblebee keine 597 Frames
+        - YFK_puppies.arff: Daten für 93 Frames fehlen, bei 97 anderen fehlen 1-5 Frames
+            - Frage: Wurde Eye-Tracker zu spät angestellt oder zu früh abgeschaltet?
+        - Lösung: Als Noise klassifizieren und in der Loss-Function verwerfen
+    - Challenge: Loss-Funktion die dazu sorgt dass predictions nicht immer in der Mitte liegen
+    - Nächster Schritt: Implementierung feature extraction
+        - Feature-Pyramide mit RIM zunächst zusammenlassen, inference time testen
+    - Server-Zugriff testen
