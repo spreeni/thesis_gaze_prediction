@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import numpy as np
 import numpy.lib.recfunctions as rfn
+from tqdm.auto import tqdm
 
 import utils
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def resize_videos_and_labels(video_dir: str, label_dir: str, out_video_dir: str, out_label_dir: str, height: int,
-                             width: Optional[int] = None):
+                             width: Optional[int] = None, out_frames_dir: Optional[str] = None):
     """
     Rescales video and label files to the given dimensions.
 
@@ -25,13 +26,15 @@ def resize_videos_and_labels(video_dir: str, label_dir: str, out_video_dir: str,
         out_label_dir:  Output label folder - structure from input will be recreated
         height:         New height of the video in pixel
         width:          (optional) New width of the video in pixel
+        out_frames_dir: (optional) Directory in case frames should be extracted
     """
     old_width, old_height, new_width, new_height = (None, None, None, None)
 
     # iterate through videos
     root_video = Path(video_dir)
     root_video_out = Path(out_video_dir)
-    for video_path in root_video.rglob('*'):
+    root_frames = Path(out_frames_dir) if out_frames_dir is not None else None
+    for video_path in tqdm(root_video.rglob('*')):
         if video_path.is_file():
             out_path = str(root_video_out.joinpath(video_path.parent.relative_to(root_video)).joinpath(video_path.name))
             _resize_video(str(video_path), out_path, height, width)
@@ -40,10 +43,13 @@ def resize_videos_and_labels(video_dir: str, label_dir: str, out_video_dir: str,
                 old_width, old_height = utils.get_video_dimensions(str(video_path))
                 new_width, new_height = utils.get_video_dimensions(out_path)
 
+            if root_frames is not None:
+                utils.store_frames_to_jpg(out_path, str(root_frames.joinpath(video_path.stem)))
+
     # iterate through labels
     root_label = Path(label_dir)
     root_label_out = Path(out_label_dir)
-    for label_path in root_label.rglob('*.txt'):
+    for label_path in tqdm(root_label.rglob('*.txt')):
         out_path = root_label_out.joinpath(label_path.parent.relative_to(root_label)).joinpath(label_path.name)
         _resize_label(str(label_path), str(out_path), old_width, old_height, new_width, new_height)
 
@@ -64,7 +70,7 @@ def _resize_video(video_path: str, out_path: str, height: int, width: Optional[i
     if width is None:
         width = -1      # keep aspect ratio
     subprocess.run(
-        f"ffmpeg -i {video_path} -vcodec libx265 -x265-params lossless=1 -vf scale={width}:{height} {out_path}")
+        f"ffmpeg -hide_banner -loglevel error -i {video_path} -vcodec libx265 -x265-params log-level=error:crf=24 -vf scale={width}:{height} {out_path}")
 
 
 def _resize_label(label_path: str, out_path: str, old_width: int, old_height: int, new_width: int, new_height: int):
@@ -84,8 +90,8 @@ def _resize_label(label_path: str, out_path: str, old_width: int, old_height: in
     gaze_data, em_data = np.array(gaze_data), np.array(em_data)
 
     # scale gaze locations
-    gaze_data[:, 0] = gaze_data[:, 0] * new_width / old_width
-    gaze_data[:, 1] = gaze_data[:, 1] * new_height / old_height
+    gaze_data[:, 0] = np.round(gaze_data[:, 0] * new_width / old_width)
+    gaze_data[:, 1] = np.round(gaze_data[:, 1] * new_height / old_height)
 
     # create new label array
     n_frames = len(em_data)

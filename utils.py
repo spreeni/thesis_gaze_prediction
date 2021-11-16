@@ -2,11 +2,13 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import os
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
 from scipy.io.arff import loadarff
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +101,12 @@ def plot_frames_with_labels(
         save_to_directory:  Directory to which plots are to be saved to. If given, will not display plots
     """
     num_frames = frames.shape[0]
-    assert num_frames == len(avg_gaze_locations), f"Number of frames and given gaze locations needs to be the same."
     if avg_em_data is not None:
-        assert num_frames == len(avg_em_data), f"Number of frames and eye data classification labels needs to be the same."
+        assert len(avg_gaze_locations) == len(
+            avg_em_data), f"Number of gaze locations and eye data classification labels needs to be the same: {len(avg_gaze_locations)} != {len(avg_em_data)}."
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
-    for i_frame in range(num_frames):
+    for i_frame in range(min(num_frames, len(avg_gaze_locations))):
         frame = frames[i_frame]
         avg_gaze = avg_gaze_locations[i_frame]
 
@@ -179,7 +181,7 @@ def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_
 
     # Load frame-wise averaged label data
     print("load frame-wise label data")
-    avg_gaze, avg_em_data = read_label_file(label_path, with_video_name=True)
+    avg_gaze, avg_em_data = read_label_file(label_path, with_video_name=False)
     avg_gaze = np.array(avg_gaze).astype('int')
     avg_em_data = np.array(avg_em_data).astype('int')
 
@@ -233,3 +235,44 @@ def get_video_dimensions(filepath: str) -> Tuple[int, int]:
     height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     return int(width), int(height)
+
+
+def store_frames_to_png(video_path: str, export_dir: str):
+    """
+    Stores all frames from a video file as png-images in export_dir.
+
+    Args:
+        video_path:     filepath of video
+        export_dir:     directory in which frames will be saved
+    """
+    # Create export_dir if not existant
+    os.makedirs(export_dir, exist_ok=True)
+
+    # Open video
+    vidcap = cv2.VideoCapture(video_path)
+
+    success, image = vidcap.read()
+    frame = 0
+
+    while success:
+        # save frame as PNG file
+        cv2.imwrite(os.path.join(export_dir, f"frame_{frame:05d}.png"), image)
+
+        success, image = vidcap.read()
+        frame += 1
+
+
+def videos_to_frames(video_dir: str, out_frames_dir: str):
+    """
+    Extracts frames from video files in video_dir and saves them as png-images in out_frames_dir.
+
+    Args:
+        video_dir:          directory where video files are stored
+        out_frames_dir:     directory where frames will be saved
+    """
+    root_video = Path(video_dir)
+    root_frames = Path(out_frames_dir)
+    for video_path in tqdm(root_video.rglob('*')):
+        if video_path.is_file():
+            if root_frames is not None:
+                store_frames_to_png(str(video_path), str(root_frames.joinpath(video_path.stem)))
