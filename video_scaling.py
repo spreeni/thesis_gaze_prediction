@@ -63,7 +63,8 @@ def _resize_video(video_path: str, out_path: str, height: int, width: Optional[i
 
     if width is None:
         width = -1      # keep aspect ratio
-    subprocess.run(f"ffmpeg -i {video_path} -vf scale={width}:{height} {out_path}")
+    subprocess.run(
+        f"ffmpeg -i {video_path} -vcodec libx265 -x265-params lossless=1 -vf scale={width}:{height} {out_path}")
 
 
 def _resize_label(label_path: str, out_path: str, old_width: int, old_height: int, new_width: int, new_height: int):
@@ -93,7 +94,7 @@ def _resize_label(label_path: str, out_path: str, old_width: int, old_height: in
     arr[:, 1] = em_data                 # em-data
     arr[:, 2:] = gaze_data              # gaze locations
 
-    structured_dt = np.dtype([('frame', '<f8'), ('label', '<f8'), ('x_angle', '<f8'), ('y_angle', '<f8')])
+    structured_dt = np.dtype([('frame', '<f8'), ('EM_phase', '<f8'), ('x_gaze', '<f8'), ('y_gaze', '<f8')])
     struct_arr = np.array(rfn.unstructured_to_structured(arr), dtype=structured_dt)
 
     # Create output directories if not existent
