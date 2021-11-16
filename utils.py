@@ -32,7 +32,7 @@ def read_label_file(
         with_EM_data: bool = True
 ) -> Tuple[List[Tuple[int, int]], Optional[List[int]]]:
     """
-    Reads a label file and returns a list of gaze data and EM-phase data
+    Reads a GazeCom label file and returns a list of gaze data and EM-phase data
 
     Args:
         file_path:          filepath to label file
@@ -215,3 +215,21 @@ def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_
     # Visualize labels on video data
     plot_frames_with_labels(frames, avg_gaze, avg_em_data=avg_em_data, gaze_locations=raw_gaze_per_frame,
                             em_data=raw_em_data_per_frame, fps=fps, display_speed=0.5)
+
+
+def get_video_dimensions(filepath: str) -> Tuple[int, int]:
+    """
+    Returns video dimensions for video file.
+
+    Args:
+        filepath:   filepath of video file
+
+    Returns:
+        Integer tuple of (width_px, height_px)
+    """
+    vcap = cv2.VideoCapture(filepath)
+
+    width = vcap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+
+    return int(width), int(height)
