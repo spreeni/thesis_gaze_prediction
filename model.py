@@ -1,32 +1,21 @@
 import torch
 import torch.nn.functional as F
 import pytorch_lightning
-import torchvision
 
 from RIM import RIM
 
 from gaze_video_data_module import GazeVideoDataModule
+from feature_extraction import FeatureExtractor, FPN
 
 
-def make_headless_resnet_2plus1d():
-    resnet_2plus1d = torchvision.models.video.r2plus1d_18(pretrained=True)
-
-    # Freeze parameters
-    for param in resnet_2plus1d.parameters():
-        param.requires_grad = False
-
-    # Return without last pooling layers
-    return torch.nn.Sequential(*(list(resnet_2plus1d.children())[:-2]))
-
-
-def make_RIM_model():
+def make_RIM_model(features=512):
     return RIM(
         # device='cuda',
         device='cpu',
-        input_size=512,
-        hidden_size=3,
+        input_size=features,
+        hidden_size=4,
         num_units=6,
-        k=4,
+        k=2,
         rnn_cell='LSTM',
         n_layers=4,
         bidirectional=False
@@ -34,24 +23,53 @@ def make_RIM_model():
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self):
+    def __init__(self, batch_size=2, frames=30, input_dims=(360, 640), out_channels=16):
         super().__init__()
 
-        resnet = make_headless_resnet_2plus1d()
-        rim = make_RIM_model()
-        self.model = torch.nn.Sequential(resnet, rim)
+        # Feature Pyramid Network for feature extraction
+        self.backbone = FeatureExtractor(input_dims, batch_size)
+        self.fpn = FPN(in_channels_list=self.backbone.in_channels, out_channels=out_channels, only_use_last_layer=True)
+
+        # Dry run to get input size for RIM
+        inp = torch.randn(batch_size * frames, 3, *input_dims)
+        with torch.no_grad():
+            out = self.fpn(self.backbone(inp))
+        print(f"FPN produces {out.shape[-1]} different Features")
+        self.rim = make_RIM_model(features=out.shape[-1])
+        self.out_pool = torch.nn.LazyLinear(out_features=2)
 
     def forward(self, x):
-        return self.model(x)
+        # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
+        batch_size, ch, frames, *input_dim = x.shape
+        x = torch.swapaxes(x, 1, 2)
+        x = x.reshape(batch_size * frames, 3, *input_dim)
+
+        # Feature extraction in feature pyramid network
+        x = self.backbone(x)
+        x = self.fpn(x)
+
+        # De-tangle batches and frames again
+        features = x.shape[1]
+        x = x.reshape(batch_size, frames, features)
+        x = torch.swapaxes(x, 0, 1)         # RIM expects tensor of shape (seq, B, features)
+
+        # Sequential processing in RIM
+        out, h, c = self.rim(x)
+        # TODO: Improve reduction from different RIM units and hidden units to gaze predictions
+        out = self.out_pool(out)
+        out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
+        return out
 
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
-        y_hat = self.model(batch["video"])
+        # TODO: Include EM-classification in data
+        y_hat = self.forward(batch["video"])
 
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
-        loss = F.mse_loss(y_hat, batch["label"])
+        # TODO: Implement specialized loss
+        loss = F.mse_loss(y_hat, batch["frame_labels"])
 
         # Log the train loss to Tensorboard
         self.log("train_loss", loss.item())
@@ -59,8 +77,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        y_hat = self.model(batch["video"])
-        loss = F.mse_loss(y_hat, batch["label"])
+        y_hat = self.forward(batch["video"])
+        loss = F.mse_loss(y_hat, batch["frame_labels"])
         self.log("val_loss", loss)
         return loss
 
@@ -73,13 +91,16 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 # Dataset configuration
-_DATA_PATH = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames'
+_DATA_PATH_FRAMES = r'data\GazeCom\\movies_m2t_360p_frames'
+#_DATA_PATH = r'data\GazeCom\\movies_m2t_360p'
 #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
 _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
-_BATCH_SIZE = 8
+_BATCH_SIZE = 2
 _NUM_WORKERS = 0  # Number of parallel processes fetching data
+_OUT_CHANNELS = 2
 
-regression_module = GazePredictionLightningModule()
-data_module = GazeVideoDataModule(data_path=_DATA_PATH, num_workers=_NUM_WORKERS)
+regression_module = GazePredictionLightningModule(batch_size=_BATCH_SIZE, input_dims=(360, 640), out_channels=_OUT_CHANNELS)
+data_module = GazeVideoDataModule(data_path=_DATA_PATH_FRAMES, video_file_suffix='', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
+#data_module = GazeVideoDataModule(data_path=_DATA_PATH, video_file_suffix='.m2t', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
 trainer = pytorch_lightning.Trainer()
 trainer.fit(regression_module, data_module)

@@ -25,20 +25,22 @@ from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 
 
 class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
-    def __init__(self, data_path, clip_duration=2, batch_size=8, num_workers=8):
+    def __init__(self, data_path, video_file_suffix="", clip_duration=2, batch_size=8, num_workers=8):
         """
         Initializes a GazeVideoDataModule which can be used in Pytorch Lightning
 
         Args:
-            data_path:      Data root directory, should contain a "train" and "val" directory
-            clip_duration:  Duration of sampled clip for each video in seconds
-            batch_size:     Batch size per model run
-            num_workers:    Number of parallel processes fetching data
+            data_path:          Data root directory, should contain a "train" and "val" directory
+            video_file_suffix:  Video file suffix. Empty string in case video exists as a directory of frame images.
+            clip_duration:      Duration of sampled clip for each video in seconds
+            batch_size:         Batch size per model run
+            num_workers:        Number of parallel processes fetching data
         """
         super().__init__()
 
         # Dataset configuration
         self._DATA_PATH = data_path
+        self._VIDEO_SUFFIX = video_file_suffix
         self._CLIP_DURATION = clip_duration
         self._BATCH_SIZE = batch_size
         self._NUM_WORKERS = num_workers
@@ -70,6 +72,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             video_sampler=torch.utils.data.RandomSampler,
             transform=train_transform,
             #transform=None,
+            video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,
             decoder="pyav",
         )
@@ -105,6 +108,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             video_sampler=torch.utils.data.RandomSampler,
             transform=val_transform,
             #transform=None,
+            video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,
             decoder="pyav",
         )

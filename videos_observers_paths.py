@@ -18,25 +18,28 @@ class VideosObserversPaths:
     """
 
     @classmethod
-    def from_path(cls, data_path: str) -> VideosObserversPaths:
+    def from_path(cls, data_path: str, video_file_suffix: str) -> VideosObserversPaths:
         """
         Factory function that creates a VideosObserversPaths object depending on the path
         type.
         - If it is a directory path it uses the VideosObserversPaths.from_directory function.
         - If it's a file it uses the VideosObserversPaths.from_csv file.
         Args:
-            file_path (str): The path to the file to be read.
+            data_path (str):            The path to the file to be read.
+            video_file_suffix (str):    Video file suffix. Empty string in case video exists
+                                        as a directory of frame images.
         """
 
         if g_pathmgr.isfile(data_path):
             return VideosObserversPaths.from_csv(data_path)
         elif g_pathmgr.isdir(data_path):
-            return VideosObserversPaths.from_directory(data_path)
+            return VideosObserversPaths.from_directory(data_path, video_file_suffix)
         else:
             raise FileNotFoundError(f"{data_path} not found.")
 
     @classmethod
     def from_csv(cls, file_path: str) -> VideosObserversPaths:
+        # TODO: Implement this method again
         """
         Factory function that creates a VideosObserversPaths object by reading a file with the
         following format:
@@ -47,6 +50,7 @@ class VideosObserversPaths:
         Args:
             file_path (str): The path to the file to be read.
         """
+        raise NotImplementedError("VideosObserversPaths.from_csv: Method currently not available.")
         assert g_pathmgr.exists(file_path), f"{file_path} not found."
         videos_and_observers = []
         with g_pathmgr.open(file_path, "r") as f:
@@ -65,7 +69,7 @@ class VideosObserversPaths:
         return cls(videos_and_observers)
 
     @classmethod
-    def from_directory(cls, dir_path: str) -> VideosObserversPaths:
+    def from_directory(cls, dir_path: str, video_file_suffix: str) -> VideosObserversPaths:
         """
         Factory function that creates a VideosObserversPaths object by parsing the structure
         of the given directory's subdirectories. It expects the directory label format to be
@@ -75,7 +79,9 @@ class VideosObserversPaths:
              dir_path/video_data/<video_name>/frame_0001.jpg  # Video as individual frames
 
         Args:
-            dir_path (str): Root directory to the video and label data directories .
+            dir_path (str):             Root directory to the video and label data directories.
+            video_file_suffix (str):    Video file suffix. Empty string in case video exists as a
+                directory of frame images.
         """
         label_path = os.path.join(dir_path, 'label_data')
         assert g_pathmgr.exists(label_path), f"{label_path} not found."
@@ -98,18 +104,22 @@ class VideosObserversPaths:
         assert (
             len(videos_and_observers) > 0
         ), f"Failed to load dataset from {label_path}."
-        return cls(videos_and_observers, path_prefix=dir_path)
+        return cls(videos_and_observers, path_prefix=dir_path, video_file_suffix=video_file_suffix)
 
     def __init__(
-        self, videos_and_observers: List[Tuple[str, str]], path_prefix=""
+        self, videos_and_observers: List[Tuple[str, str]], path_prefix: str = "", video_file_suffix: str = ""
     ) -> None:
         """
         Args:
             videos_and_observers [(str, str)]: a list of tuples containing the video
                 name and observer name.
+            path_prefix (str):          Root directory to the video and label data directories
+            video_file_suffix (str):    Video file suffix. Empty string in case video exists as a
+                directory of frame images.
         """
         self._videos_and_observers = videos_and_observers
         self._path_prefix = path_prefix
+        self._video_file_suffix = video_file_suffix
 
     def path_prefix(self, prefix):
         self._path_prefix = prefix
@@ -126,7 +136,7 @@ class VideosObserversPaths:
         """
         video_name, observer = self._videos_and_observers[index]
 
-        video_path = os.path.join(self._path_prefix, 'video_data', video_name)
+        video_path = os.path.join(self._path_prefix, 'video_data', f'{video_name}{self._video_file_suffix}')
         label_path = os.path.join(self._path_prefix, 'label_data', video_name, f'{observer}_{video_name}.txt')
 
         return (video_path, label_path)

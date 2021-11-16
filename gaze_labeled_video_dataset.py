@@ -190,7 +190,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
                     # Load frame labels and em phase data from label file
                     self._loaded_frame_labels, self._loaded_em_data = utils.read_label_file(label_path,
-                                                                                            with_video_name=True)
+                                                                                            with_video_name=False)
 
                 except Exception as e:
                     logger.debug(
@@ -238,7 +238,8 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
             frame_indices = self._loaded_clip["frame_indices"]
             audio_samples = self._loaded_clip["audio"]
             observer = utils.get_observer_from_label_path(label_path)
-            em_data = torch.tensor(self._loaded_em_data, dtype=torch.int)[
+            # TODO: Check that labels exist for frame_indices
+            em_data = torch.tensor(self._loaded_em_data, dtype=torch.float32)[
                 frame_indices] if self._loaded_em_data else None
 
             sample_dict = {
@@ -248,7 +249,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 "clip_index": clip_index,
                 "aug_index": aug_index,
                 "observer": observer,
-                "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.int)[frame_indices],
+                "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices],
                 **({"em_data": em_data} if em_data is not None else {}),
                 **({"audio": audio_samples} if audio_samples is not None else {}),
             }
@@ -287,6 +288,7 @@ def gaze_labeled_video_dataset(
     video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
     transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     video_path_prefix: str = "",
+    video_file_suffix: str = "",
     decode_audio: bool = True,
     decoder: str = "pyav",
 ) -> GazeLabeledVideoDataset:
@@ -318,12 +320,15 @@ def gaze_labeled_video_dataset(
                 loaded in ``LabeledVideoDataset``. All the video paths before loading
                 are prefixed with this path.
 
+        video_file_suffix (str): Video file suffix. Empty string in case video exists as a
+                directory of frame images.
+
         decode_audio (bool): If True, also decode audio from video.
 
         decoder (str): Defines what type of decoder used to decode a video.
 
     """
-    videos_and_observers = VideosObserversPaths.from_path(data_path)
+    videos_and_observers = VideosObserversPaths.from_path(data_path, video_file_suffix)
     #videos_and_observers.path_prefix = video_path_prefix
     dataset = GazeLabeledVideoDataset(
         videos_and_observers,

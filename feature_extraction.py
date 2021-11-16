@@ -65,7 +65,7 @@ class FPN(torch.nn.Module):
     def forward(self, x):
         x = self.fpn(x)
         if self.only_use_last_layer:  # Output last layer of FPN
-            x = x.values()[0].flatten(start_dim=1)
+            x = x[list(x.keys())[0]].flatten(start_dim=1)
         else:                         # Concatenate outputs of all FPN layers
             x = torch.cat([t.flatten(start_dim=1) for t in x.values()], 1)
         return x
