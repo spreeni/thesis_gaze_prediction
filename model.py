@@ -25,14 +25,18 @@ def make_RIM_model(device, features=512):
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, batch_size=2, frames=30, input_dims=(360, 640), out_channels=16):
+    def __init__(self, lr=0.09, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16):
         super().__init__()
+
+        self.learning_rate = lr
+        self.batch_size = batch_size
+
         # Feature Pyramid Network for feature extraction
-        self.backbone = FeatureExtractor(device, input_dims, batch_size)
+        self.backbone = FeatureExtractor(device, input_dims, self.batch_size)
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels, only_use_last_layer=True)
 
         # Dry run to get input size for RIM
-        inp = torch.randn(batch_size * frames, 3, *input_dims)
+        inp = torch.randn(self.batch_size * frames, 3, *input_dims)
         with torch.no_grad():
             out = self.fpn(self.backbone(inp))
         print(f"FPN produces {out.shape[-1]} different Features")
@@ -74,14 +78,14 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         loss = F.mse_loss(y_hat, batch["frame_labels"])
 
         # Log the train loss to Tensorboard
-        self.log("train_loss", loss.item())
+        self.log("train_loss", loss.item(), batch_size=batch["video"].shape[0])
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         y_hat = self.forward(batch["video"])
         loss = F.mse_loss(y_hat, batch["frame_labels"])
-        self.log("val_loss", loss)
+        self.log("val_loss", loss, batch_size=batch["video"].shape[0])
         return loss
 
     def configure_optimizers(self):
@@ -89,24 +93,24 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         Setup the Adam optimizer. Note, that this function also can return a lr scheduler, which is
         usually useful for training video models.
         """
-        return torch.optim.Adam(self.parameters(), lr=1e-1)
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
 
 # Dataset configuration
-_DATA_PATH_FRAMES = r'/mnt/data/ni/yannicsl/data/GazeCom/movies_m2t_360p'
-#_DATA_PATH_FRAMES = r'data\GazeCom\\movies_m2t_360p_frames'
-#_DATA_PATH = r'data\GazeCom\\movies_m2t_360p'
+_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
 #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
-_CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
-_BATCH_SIZE = 2
+_CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
+_BATCH_SIZE = 16
 _NUM_WORKERS = 8  # Number of parallel processes fetching data
-_OUT_CHANNELS = 2
+_OUT_CHANNELS = 16
 
-regression_module = GazePredictionLightningModule(batch_size=_BATCH_SIZE, input_dims=(360, 640), out_channels=_OUT_CHANNELS)
+regression_module = GazePredictionLightningModule(batch_size=_BATCH_SIZE, input_dims=(244, 244), out_channels=_OUT_CHANNELS)
 data_module = GazeVideoDataModule(data_path=_DATA_PATH_FRAMES, video_file_suffix='', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
 #data_module = GazeVideoDataModule(data_path=_DATA_PATH, video_file_suffix='.m2t', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
 
 #early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
-trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=40, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=True)
+trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=40, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=False, fast_dev_run=False)
                       #progress_bar_refresh_rate=10, early_stop_callback=early_stop_callback)
+
+trainer.tune(regression_module, data_module)
 trainer.fit(regression_module, data_module)

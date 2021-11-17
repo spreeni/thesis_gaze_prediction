@@ -38,11 +38,12 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         """
         super().__init__()
 
+        self.batch_size = batch_size
+
         # Dataset configuration
         self._DATA_PATH = data_path
         self._VIDEO_SUFFIX = video_file_suffix
         self._CLIP_DURATION = clip_duration
-        self._BATCH_SIZE = batch_size
         self._NUM_WORKERS = num_workers
 
     def train_dataloader(self):
@@ -78,7 +79,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         )
         return torch.utils.data.DataLoader(
             train_dataset,
-            batch_size=self._BATCH_SIZE,
+            batch_size=self.batch_size,
             num_workers=self._NUM_WORKERS,
         )
 
@@ -105,7 +106,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         val_dataset = gaze_labeled_video_dataset(
             data_path=os.path.join(self._DATA_PATH, "val"),
             clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
-            video_sampler=torch.utils.data.RandomSampler,
+            video_sampler=torch.utils.data.SequentialSampler,
             transform=val_transform,
             #transform=None,
             video_file_suffix=self._VIDEO_SUFFIX,
@@ -114,6 +115,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         )
         return torch.utils.data.DataLoader(
             val_dataset,
-            batch_size=self._BATCH_SIZE,
+            batch_size=self.batch_size,
             num_workers=self._NUM_WORKERS,
+            shuffle=False
         )

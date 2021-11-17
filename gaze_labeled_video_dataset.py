@@ -233,26 +233,34 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                         "Failed to load clip {}; trial {}".format(video.name, i_try)
                     )
                     continue
+            
+            try:  # TODO: Check that labels exist for frame_indices
+                frames = self._loaded_clip["video"]
+                frame_indices = self._loaded_clip["frame_indices"]
+                audio_samples = self._loaded_clip["audio"]
+                observer = utils.get_observer_from_label_path(label_path)
+                em_data = torch.tensor(self._loaded_em_data, dtype=torch.float32)[
+                    frame_indices] if self._loaded_em_data else None
 
-            frames = self._loaded_clip["video"]
-            frame_indices = self._loaded_clip["frame_indices"]
-            audio_samples = self._loaded_clip["audio"]
-            observer = utils.get_observer_from_label_path(label_path)
-            # TODO: Check that labels exist for frame_indices
-            em_data = torch.tensor(self._loaded_em_data, dtype=torch.float32)[
-                frame_indices] if self._loaded_em_data else None
-
-            sample_dict = {
-                "video": frames,
-                "video_name": video.name,
-                "video_index": video_index,
-                "clip_index": clip_index,
-                "aug_index": aug_index,
-                "observer": observer,
-                "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices],
-                **({"em_data": em_data} if em_data is not None else {}),
-                **({"audio": audio_samples} if audio_samples is not None else {}),
-            }
+                sample_dict = {
+                    "video": frames,
+                    "video_name": video.name,
+                    "video_index": video_index,
+                    "clip_index": clip_index,
+                    "aug_index": aug_index,
+                    "observer": observer,
+                    "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices],
+                    **({"em_data": em_data} if em_data is not None else {}),
+                    **({"audio": audio_samples} if audio_samples is not None else {}),
+                }
+            except Exception as e:
+                logger.debug(
+                    "Failed to select label data with error: {}; trial {}".format(
+                        e,
+                        i_try,
+                    )
+                )
+                continue
 
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
