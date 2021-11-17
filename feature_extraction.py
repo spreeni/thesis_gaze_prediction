@@ -14,8 +14,9 @@ class FeatureExtractor(torch.nn.Module):
         extractor = FeatureExtractor(input_dim, batch_size)
         features = extractor(inp)
     """
-    def __init__(self, input_dim=(720, 1280), batch_size=4):
+    def __init__(self, device, input_dim=(720, 1280), batch_size=4):
         super().__init__()
+        self.device = device
 
         # Get a MobileNet v3 backbone
         m = timm.create_model('mobilenetv3_large_100', pretrained=True)
@@ -26,16 +27,16 @@ class FeatureExtractor(torch.nn.Module):
 
         # Extract 6 main layers
         self.body = create_feature_extractor(
-            m, return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)})
+            m, return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)}).to(device=self.device)
 
         # Dry run to get number of channels for FPN
-        inp = torch.randn(batch_size, 3, *input_dim)
+        inp = torch.randn(batch_size, 3, *input_dim, device=self.device)
         with torch.no_grad():
             out = self.body(inp)
         self._in_channels_list = [o.shape[1] for o in out.values()]
 
     def forward(self, x):
-        return self.body(x)
+        return self.body(x.to(device=self.device))
 
     @property
     def in_channels(self):
@@ -51,7 +52,7 @@ class FPN(torch.nn.Module):
     only_use_last_layer specifies if only the bottom-most layer features should be output or a concatenation of all
     resulting layer features
     """
-    def __init__(self, in_channels_list=None, out_channels=16, only_use_last_layer=False):
+    def __init__(self, device, in_channels_list=None, out_channels=16, only_use_last_layer=False):
         super().__init__()
 
         # Build FPN
@@ -60,7 +61,7 @@ class FPN(torch.nn.Module):
         self.out_channels = out_channels
         self.only_use_last_layer = only_use_last_layer
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list, out_channels=self.out_channels)
+            in_channels_list, out_channels=self.out_channels).to(device=device)
 
     def forward(self, x):
         x = self.fpn(x)
