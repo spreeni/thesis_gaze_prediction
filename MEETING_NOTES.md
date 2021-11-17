@@ -109,3 +109,36 @@
     - Nächster Schritt: Implementierung feature extraction
         - Feature-Pyramide mit RIM zunächst zusammenlassen, inference time testen
     - Server-Zugriff testen
+- 10.11.21
+    - Visualisierung von Labeldaten besprochen
+    - Frames down-skalieren von 720x1280 (GazeCom)
+    - Zu diskutieren: Nur letzten Output von Feature Pyramid oder Stack von Outputs verwenden?
+    - Eye-tracking Daten für GazeCom stimmen nicht immer mit Video-Länge überein
+        - koenigsstrasse/bumblebee keine 597 Frames
+        - YFK_puppies.arff: Daten für 93 Frames fehlen, bei 97 anderen fehlen 1-5 Frames
+            - Frage: Wurde Eye-Tracker zu spät angestellt oder zu früh abgeschaltet?
+        - Lösung: Als Noise klassifizieren und in der Loss-Function verwerfen
+    - Challenge: Loss-Funktion die dazu sorgt dass predictions nicht immer in der Mitte liegen
+    - Nächster Schritt: Implementierung feature extraction
+        - Feature-Pyramide mit RIM zunächst zusammenlassen, inference time testen
+    - Server-Zugriff testen
+- 17.11.21
+    - 640x360px vielleicht noch zu groß
+        - nach ImageNet orientieren (224x224)
+            - könnte x gegen y angleichen, quasi normieren
+            - menschliche Augenbewegungen vermutlich mehr auf der x-Achse
+    - Stochastizität & Funktionssuche für später
+    - Parallelisierung des Dataloaders überprüfen
+        - Liegt möglicherweise an Windows und kein Problem auf Linux-Server
+            - ssh-Verbindung einrichten (mit ProxyJump über alioth)
+            - Conda + cuda einrichten
+                - Cuda sagen nur eine GPU zu nutzen (am besten im Code)
+                - Cuda Toolkit abgleichen mit Server-Version
+    - Aggregation von RIM Outputs
+        - Im Paper Dense-Layer, aber vermutlich besser ein Attention-Layer anzuhängen
+    - Loss-Function
+        - exclude noise phases from loss calculations
+        - cross-entropy loss
+            - möglicherweise weighted, damit Saccaden nicht übergangen werden
+        - Zuerst Model von reinen Bilddaten auf gaze + EM-Phase predicten
+        - Möglicherweise **Mean Squared Log-scaled Error Loss** benutzen ([https://stats.stackexchange.com/questions/261704/training-a-neural-network-for-regression-always-predicts-the-mean](https://stats.stackexchange.com/questions/261704/training-a-neural-network-for-regression-always-predicts-the-mean))
