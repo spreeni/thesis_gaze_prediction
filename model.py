@@ -12,11 +12,12 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, lr=0.09, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16):
+    def __init__(self, lr=1e-5, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=True):
         super().__init__()
 
         self.learning_rate = lr
         self.batch_size = batch_size
+        self.predict_em = predict_em
 
         self.save_hyperparameters()
 
@@ -33,20 +34,21 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.rim = RIM(
             device=device,
             input_size=out.shape[-1],
-            hidden_size=4,
+            hidden_size=8,
             num_units=6,
-            k=2,
+            k=3,
             rnn_cell='LSTM',
-            n_layers=4,
+            n_layers=6,
             bidirectional=False
         )
 
         # Dry run to get input size for end layer
-        inp = torch.randn(frames, self.batch_size, out.shape[-1])
+        inp = torch.randn(frames, self.batch_size, out.shape[-1], device=device)
         with torch.no_grad():
-            out = self.rim(out)
-        #self.out_pool = torch.nn.LazyLinear(out_features=2, device=device)
-        self.out_pool = torch.nn.Linear(in_features=out.shape[-1], out_features=2, device=device)
+            out, _, _ = self.rim(inp)
+        out_features = 3 if self.predict_em else 2
+        #self.out_pool = torch.nn.LazyLinear(out_features=out_features, device=device)
+        self.out_pool = torch.nn.Linear(in_features=out.shape[-1], out_features=out_features, device=device)
 
     def forward(self, x):
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
@@ -70,6 +72,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
 
+    def loss(self, y_hat, batch):
+        not_noise = batch['em_data'] != 0
+        loss = F.mse_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        if self.predict_em:
+            loss += F.mse_loss(y_hat[:, :, 2][not_noise], batch['em_data'][not_noise])
+        return loss
+
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
@@ -79,7 +88,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
         # TODO: Implement specialized loss
-        loss = F.mse_loss(y_hat, batch["frame_labels"])
+        loss = self.loss(y_hat, batch)
 
         # Log the train loss to Tensorboard
         self.log("train_loss", loss.item(), batch_size=batch["video"].shape[0])
@@ -88,7 +97,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         y_hat = self.forward(batch["video"])
-        loss = F.mse_loss(y_hat, batch["frame_labels"])
+        loss = self.loss(y_hat, batch)
         self.log("val_loss", loss, batch_size=batch["video"].shape[0])
         return loss
 
@@ -129,7 +138,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         trainer.tune(regression_module, data_module)
     else:
         # early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
-        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=40, auto_lr_find=False, auto_scale_batch_size=False,
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=10, auto_lr_find=False, auto_scale_batch_size=False,
                                             fast_dev_run=False)#, early_stop_callback=early_stop_callback)
 
         trainer.fit(regression_module, data_module)
@@ -140,7 +149,7 @@ if __name__ == '__main__':
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
     #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
     _CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
-    _BATCH_SIZE = 16
+    _BATCH_SIZE = 8
     _NUM_WORKERS = 8  # Number of parallel processes fetching data
     _OUT_CHANNELS = 16
 
