@@ -24,6 +24,39 @@ from torchvision.transforms import (
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 
 
+TRAIN_TRANSFORM = Compose(
+    [
+        ApplyTransformToKey(
+            key="video",
+            transform=Compose(
+                [
+                    #UniformTemporalSubsample(8),
+                    Lambda(lambda x: x / 255.0),
+                    Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                    #RandomHorizontalFlip(p=0.5),
+                    #Grayscale()
+                ]
+            ),
+        ),
+    ]
+)
+
+VAL_TRANSFORM = Compose(
+    [
+        ApplyTransformToKey(
+            key="video",
+            transform=Compose(
+                [
+                    #UniformTemporalSubsample(8),
+                    Lambda(lambda x: x / 255.0),
+                    Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                    #Grayscale()
+                ]
+            ),
+        ),
+    ]
+)
+
 class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
     def __init__(self, data_path, video_file_suffix="", clip_duration=2, batch_size=8, num_workers=8):
         """
@@ -51,27 +84,12 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         Create the train partition from the list of video labels
         in {self._DATA_PATH}/train
         """
-        train_transform = Compose(
-            [
-                ApplyTransformToKey(
-                    key="video",
-                    transform=Compose(
-                        [
-                            #UniformTemporalSubsample(8),
-                            Lambda(lambda x: x / 255.0),
-                            Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
-                            #RandomHorizontalFlip(p=0.5),
-                            #Grayscale()
-                        ]
-                    ),
-                ),
-            ]
-        )
+
         train_dataset = gaze_labeled_video_dataset(
             data_path=os.path.join(self._DATA_PATH, "train"),
             clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
             video_sampler=torch.utils.data.RandomSampler,
-            transform=train_transform,
+            transform=TRAIN_TRANSFORM,
             #transform=None,
             video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,
@@ -88,26 +106,12 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         Create the validation partition from the list of video labels
         in {self._DATA_PATH}/val
         """
-        val_transform = Compose(
-            [
-                ApplyTransformToKey(
-                    key="video",
-                    transform=Compose(
-                        [
-                            #UniformTemporalSubsample(8),
-                            Lambda(lambda x: x / 255.0),
-                            Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
-                            #Grayscale()
-                        ]
-                    ),
-                ),
-            ]
-        )
+
         val_dataset = gaze_labeled_video_dataset(
             data_path=os.path.join(self._DATA_PATH, "val"),
             clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
             video_sampler=torch.utils.data.SequentialSampler,
-            transform=val_transform,
+            transform=VAL_TRANSFORM,
             #transform=None,
             video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,

@@ -11,25 +11,14 @@ from feature_extraction import FeatureExtractor, FPN
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def make_RIM_model(device, features=512):
-    return RIM(
-        device=device,
-        input_size=features,
-        hidden_size=4,
-        num_units=6,
-        k=2,
-        rnn_cell='LSTM',
-        n_layers=4,
-        bidirectional=False
-    )
-
-
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr=0.09, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16):
         super().__init__()
 
         self.learning_rate = lr
         self.batch_size = batch_size
+
+        self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
         self.backbone = FeatureExtractor(device, input_dims, self.batch_size)
@@ -40,9 +29,24 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         with torch.no_grad():
             out = self.fpn(self.backbone(inp))
         print(f"FPN produces {out.shape[-1]} different Features")
-        self.rim = make_RIM_model(device, features=out.shape[-1])
-        #self.out_pool = torch.nn.LazyLinear(out_features=2)
-        self.out_pool = torch.nn.Linear(in_features=24, out_features=2)
+
+        self.rim = RIM(
+            device=device,
+            input_size=out.shape[-1],
+            hidden_size=4,
+            num_units=6,
+            k=2,
+            rnn_cell='LSTM',
+            n_layers=4,
+            bidirectional=False
+        )
+
+        # Dry run to get input size for end layer
+        inp = torch.randn(frames, self.batch_size, out.shape[-1])
+        with torch.no_grad():
+            out = self.rim(out)
+        #self.out_pool = torch.nn.LazyLinear(out_features=2, device=device)
+        self.out_pool = torch.nn.Linear(in_features=out.shape[-1], out_features=2, device=device)
 
     def forward(self, x):
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
@@ -96,21 +100,50 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
 
-# Dataset configuration
-_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
-#csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
-_CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
-_BATCH_SIZE = 16
-_NUM_WORKERS = 8  # Number of parallel processes fetching data
-_OUT_CHANNELS = 16
+def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
+                only_tune: bool = False):
+    """
+    Train or tune the model on the data in data_path.
 
-regression_module = GazePredictionLightningModule(batch_size=_BATCH_SIZE, input_dims=(244, 244), out_channels=_OUT_CHANNELS)
-data_module = GazeVideoDataModule(data_path=_DATA_PATH_FRAMES, video_file_suffix='', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
-#data_module = GazeVideoDataModule(data_path=_DATA_PATH, video_file_suffix='.m2t', batch_size=_BATCH_SIZE, num_workers=_NUM_WORKERS)
+    Args:
+        data_path:
+        clip_duration:
+        batch_size:
+        num_workers:
+        out_channels:
+        only_tune:
+    """
+    regression_module = GazePredictionLightningModule(batch_size=batch_size, frames=round(clip_duration * 29.97),
+                                                      input_dims=(244, 244), out_channels=out_channels)
+    data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
+                                      num_workers=num_workers)
+    # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, num_workers=num_workers)
 
-#early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
-trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=40, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=False, fast_dev_run=False)
-                      #progress_bar_refresh_rate=10, early_stop_callback=early_stop_callback)
+    if only_tune:
+        # Find maximum batch size that fits into memory
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=1, auto_lr_find=False, auto_scale_batch_size=True)
+        trainer.tune(regression_module, data_module)
 
-trainer.tune(regression_module, data_module)
-trainer.fit(regression_module, data_module)
+        # Find best initial learning rate with optimal batch size
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=1, auto_lr_find=True, auto_scale_batch_size=False)
+        trainer.tune(regression_module, data_module)
+    else:
+        # early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=40, auto_lr_find=False, auto_scale_batch_size=False,
+                                            fast_dev_run=False)#, early_stop_callback=early_stop_callback)
+
+        trainer.fit(regression_module, data_module)
+
+
+if __name__ == '__main__':
+    # Dataset configuration
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
+    #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
+    _CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
+    _BATCH_SIZE = 16
+    _NUM_WORKERS = 8  # Number of parallel processes fetching data
+    _OUT_CHANNELS = 16
+
+    train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False)
+
+

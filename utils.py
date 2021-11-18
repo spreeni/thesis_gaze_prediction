@@ -75,7 +75,7 @@ def plot_frames_with_labels(
         frames: np.ndarray,
         avg_gaze_locations: np.ndarray,
         avg_em_data: Optional[np.ndarray] = None,
-        gaze_locations: Optional[List[List]] = None,
+        gaze_locations: Optional[List[List[Tuple]]] = None,
         em_data: Optional[List] = None,
         fps=30.,
         box_width=25,
@@ -111,7 +111,6 @@ def plot_frames_with_labels(
         avg_gaze = avg_gaze_locations[i_frame]
 
         # Plot frame
-        ax.patches = []
         ax.clear()
         ax.imshow(frame)
 
