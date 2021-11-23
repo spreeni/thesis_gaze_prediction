@@ -12,18 +12,19 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, lr=1e-5, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=True):
+    def __init__(self, lr=1e-5, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=True, fpn_only_use_last_layer=False, em_loss_scaling=3600):
         super().__init__()
 
         self.learning_rate = lr
         self.batch_size = batch_size
         self.predict_em = predict_em
+        self.em_loss_scaling = em_loss_scaling
 
         self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
         self.backbone = FeatureExtractor(device, input_dims, self.batch_size)
-        self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels, only_use_last_layer=True)
+        self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels, only_use_last_layer=fpn_only_use_last_layer)
 
         # Dry run to get input size for RIM
         inp = torch.randn(self.batch_size * frames, 3, *input_dims)
@@ -76,7 +77,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         not_noise = batch['em_data'] != 0
         loss = F.mse_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         if self.predict_em:
-            loss += F.mse_loss(y_hat[:, :, 2][not_noise], batch['em_data'][not_noise])
+            loss += F.mse_loss(y_hat[:, :, 2][not_noise], batch['em_data'][not_noise]) * self.em_loss_scaling
         return loss
 
     def training_step(self, batch, batch_idx):
