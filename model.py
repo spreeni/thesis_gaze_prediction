@@ -12,7 +12,9 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, lr=1e-5, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=True, fpn_only_use_last_layer=False, em_loss_scaling=3600):
+    def __init__(self, lr=1e-5, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=False,
+                 fpn_only_use_last_layer=True, em_loss_scaling=3600, rim_hidden_size=8, rim_num_units=6, rim_k=3,
+                 rnn_cell='LSTM', rim_layers=6):
         super().__init__()
 
         self.learning_rate = lr
@@ -24,7 +26,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Feature Pyramid Network for feature extraction
         self.backbone = FeatureExtractor(device, input_dims, self.batch_size)
-        self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels, only_use_last_layer=fpn_only_use_last_layer)
+        self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
+                       only_use_last_layer=fpn_only_use_last_layer)
 
         # Dry run to get input size for RIM
         inp = torch.randn(self.batch_size * frames, 3, *input_dims)
@@ -35,11 +38,11 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.rim = RIM(
             device=device,
             input_size=out.shape[-1],
-            hidden_size=8,
-            num_units=6,
-            k=3,
-            rnn_cell='LSTM',
-            n_layers=6,
+            hidden_size=rim_hidden_size,
+            num_units=rim_num_units,
+            k=rim_k,
+            rnn_cell=rnn_cell,
+            n_layers=rim_layers,
             bidirectional=False
         )
 
@@ -48,7 +51,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         with torch.no_grad():
             out, _, _ = self.rim(inp)
         out_features = 3 if self.predict_em else 2
-        #self.out_pool = torch.nn.LazyLinear(out_features=out_features, device=device)
+        # self.out_pool = torch.nn.LazyLinear(out_features=out_features, device=device)
         self.out_pool = torch.nn.Linear(in_features=out.shape[-1], out_features=out_features, device=device)
 
     def forward(self, x):
@@ -111,20 +114,18 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                only_tune: bool = False):
+                only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True, em_loss_scaling=3600,
+                rim_hidden_size=8, rim_num_units=6, rim_k=3, rnn_cell='LSTM', rim_layers=6):
     """
     Train or tune the model on the data in data_path.
-
-    Args:
-        data_path:
-        clip_duration:
-        batch_size:
-        num_workers:
-        out_channels:
-        only_tune:
     """
     regression_module = GazePredictionLightningModule(batch_size=batch_size, frames=round(clip_duration * 29.97),
-                                                      input_dims=(244, 244), out_channels=out_channels)
+                                                      input_dims=(244, 244), out_channels=out_channels,
+                                                      predict_em=predict_em,
+                                                      fpn_only_use_last_layer=fpn_only_use_last_layer,
+                                                      em_loss_scaling=em_loss_scaling, rim_hidden_size=rim_hidden_size,
+                                                      rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
+                                                      rim_layers=rim_layers)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, num_workers=num_workers)
@@ -140,7 +141,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
     else:
         # early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
         trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=10, auto_lr_find=False, auto_scale_batch_size=False,
-                                            fast_dev_run=False)#, early_stop_callback=early_stop_callback)
+                                            fast_dev_run=False)  # , early_stop_callback=early_stop_callback)
 
         trainer.fit(regression_module, data_module)
 
@@ -148,12 +149,10 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
 if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
-    #csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
+    # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
     _CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
     _BATCH_SIZE = 8
     _NUM_WORKERS = 8  # Number of parallel processes fetching data
     _OUT_CHANNELS = 16
 
     train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False)
-
-
