@@ -142,3 +142,21 @@
             - möglicherweise weighted, damit Saccaden nicht übergangen werden
         - Zuerst Model von reinen Bilddaten auf gaze + EM-Phase predicten
         - Möglicherweise **Mean Squared Log-scaled Error Loss** benutzen ([https://stats.stackexchange.com/questions/261704/training-a-neural-network-for-regression-always-predicts-the-mean](https://stats.stackexchange.com/questions/261704/training-a-neural-network-for-regression-always-predicts-the-mean))
+- 24.11.21
+    - Normalisierung überprüfen
+        - Visualisierung möglicherweise ohne Normalisierung
+    - Kein Einfluss von Bilddaten in Predictions erkennbar
+        - FPN gibt möglicherweise Noise aus
+            - FPN Features plotten um zu testen, ob Bild-Features und Bewegungen ersichtlich sind
+        - Overfitting auf einem bestimmtem Clip um Funktionsweise zu testen
+            - Zunächst nur Loss minimieren
+        - Rekurrenz entfernen um Einfluss zu testen (nur einen Frame)
+    - Irgendwann teacher forcing implementieren
+    - Beam search anstatt greedy first approach → längere, schönere Trajectories und weniger Verlass auf
+    - Dataloader möglicherweise anpassen um State von letztem Clip zu laden
+        - hidden states RIM
+        - xy für teacher forcing
+            - output als input (Label bzw. vorherige Prediction)
+    - Gradient/Weights Update loggen
+    - Feature Pyramid Features plotten
+        - Tensor in Tensorboard loggen?
