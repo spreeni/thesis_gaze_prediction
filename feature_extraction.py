@@ -63,10 +63,15 @@ class FPN(torch.nn.Module):
         self.fpn = FeaturePyramidNetwork(
             in_channels_list, out_channels=self.out_channels).to(device=device)
 
-    def forward(self, x):
+    def forward(self, x, return_channels=False):
         x = self.fpn(x)
+        ch_data = x.copy()
         if self.only_use_last_layer:  # Output last layer of FPN
+            ch_data = {list(ch_data.keys())[0]: ch_data[list(ch_data.keys())[0]]}
             x = x[list(x.keys())[0]].flatten(start_dim=1)
         else:                         # Concatenate outputs of all FPN layers
             x = torch.cat([t.flatten(start_dim=1) for t in x.values()], 1)
-        return x
+        if return_channels:
+            return x, ch_data
+        else:
+            return x
