@@ -18,7 +18,7 @@ def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
     """
     Adds tensor as video to tensorboard logs.
 
-    Expects frames in shape (T, C, H, W).
+    Expects frames in shape (T, C, H, W) or (T, H, W) for one-channel tensors.
     """
     logger.add_histogram(f"{name}_hist", frames)
     if interpolate_range:
@@ -28,8 +28,6 @@ def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
     if len(frames.shape) == 3:  # grayscale
         frames = frames[:, None, :, :]
     frames = torch.from_numpy(frames[None, :])
-    #frames = torch.swapaxes(frames, 3, 4)
-    #frames = torch.swapaxes(frames, 2, 3)
 
     logger.add_video(
         tag=name,
@@ -38,9 +36,9 @@ def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
 
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, lr=3e-2, batch_size=16, frames=30, input_dims=(244, 244), out_channels=16, predict_em=False,
-                 fpn_only_use_last_layer=True, em_loss_scaling=3600, rim_hidden_size=8, rim_num_units=6, rim_k=3,
-                 rnn_cell='LSTM', rim_layers=3, use_attention_layer=True, attention_heads=8):
+    def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
+                 fpn_only_use_last_layer, em_loss_scaling, rim_hidden_size, rim_num_units, rim_k,
+                 rnn_cell, rim_layers, attention_heads):
         super().__init__()
 
         self.learning_rate = lr
@@ -76,12 +74,15 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         inp = torch.randn(frames, self.batch_size, out.shape[-1], device=device)
         with torch.no_grad():
             out, _, _ = self.rim(inp)
+        embed_dim = out.shape[-1]
         out_features = 3 if self.predict_em else 2
-        self.attention_layer = None
-        if use_attention_layer:
-            self.attention_layer = torch.nn.TransformerEncoderLayer(d_model=out.shape[-1], nhead=attention_heads, device=device)
-        # self.out_pool = torch.nn.LazyLinear(out_features=out_features, device=device)
-        self.out_pool = torch.nn.Linear(in_features=out.shape[-1], out_features=out_features, device=device)
+
+        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads)
+
+        # here comes the hack, because MultiheadAttention maps to embed_dim
+        factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
+        self.multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(embed_dim, out_features, bias=self.multihead_attn.in_proj_bias is not None, **factory_kwargs)
+        self.multihead_attn._reset_parameters()
 
     def forward(self, x, log_features=False):
         batch_size, ch, frames, *input_dim = x.shape
@@ -112,10 +113,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Sequential processing in RIM
         out, h, c = self.rim(x)
-        # TODO: Improve reduction from different RIM units and hidden units to gaze predictions
-        out = self.attention_layer(out)
-        out = self.out_pool(out)
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
+        out, attn_output_weights = self.multihead_attn(out, out, out)
         return out
 
     def loss(self, y_hat, batch):
@@ -163,21 +162,22 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=False, em_loss_scaling=1,
-                rim_hidden_size=8, rim_num_units=6, rim_k=3, rnn_cell='LSTM', rim_layers=6, train_checkpoint=None):
+                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=False, em_loss_scaling=1,
+                rim_hidden_size=512, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                attention_heads=2, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """
     if train_checkpoint:
         regression_module = GazePredictionLightningModule.load_from_checkpoint(train_checkpoint).to(device=device)
     else:
-        regression_module = GazePredictionLightningModule(batch_size=batch_size, frames=round(clip_duration * 29.97),
+        regression_module = GazePredictionLightningModule(lr=lr, batch_size=batch_size, frames=round(clip_duration * 29.97),
                                                         input_dims=(244, 244), out_channels=out_channels,
                                                         predict_em=predict_em,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         em_loss_scaling=em_loss_scaling, rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
-                                                        rim_layers=rim_layers)
+                                                        rim_layers=rim_layers, attention_heads=attention_heads)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)

@@ -239,8 +239,13 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 frame_indices = self._loaded_clip["frame_indices"]
                 audio_samples = self._loaded_clip["audio"]
                 observer = utils.get_observer_from_label_path(label_path)
+                frame_labels = torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices]
                 em_data = torch.tensor(self._loaded_em_data, dtype=torch.float32)[
                     frame_indices] if self._loaded_em_data else None
+                
+                # Normalize labels to range [-1, 1]
+                max_h, max_w = frames.shape[-2:]
+                frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
 
                 sample_dict = {
                     "video": frames,
@@ -249,7 +254,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                     "clip_index": clip_index,
                     "aug_index": aug_index,
                     "observer": observer,
-                    "frame_labels": torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices],
+                    "frame_labels": frame_labels,
                     **({"em_data": em_data} if em_data is not None else {}),
                     **({"audio": audio_samples} if audio_samples is not None else {}),
                 }
