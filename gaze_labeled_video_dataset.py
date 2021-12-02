@@ -12,6 +12,7 @@ import torch.utils.data
 from pytorchvideo.data.clip_sampling import ClipSampler
 from pytorchvideo.data.video import VideoPathHandler
 from pytorchvideo.data.utils import MultiProcessSampler
+from sklearn.preprocessing import OneHotEncoder
 
 from videos_observers_paths import VideosObserversPaths
 import utils
@@ -65,6 +66,9 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         self._clip_sampler = clip_sampler
         self._video_and_label_paths = video_and_label_paths
         self._decoder = decoder
+
+        self.em_encoder = OneHotEncoder()
+        self.em_encoder.fit([[i] for i in range(4)])
 
         # If a RandomSampler is used we need to pass in a custom random generator that
         # ensures all PyTorch multiprocess workers have the same random seed.
@@ -240,12 +244,16 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 audio_samples = self._loaded_clip["audio"]
                 observer = utils.get_observer_from_label_path(label_path)
                 frame_labels = torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices]
-                em_data = torch.tensor(self._loaded_em_data, dtype=torch.float32)[
+                em_data = torch.tensor(self._loaded_em_data, dtype=torch.int8)[
                     frame_indices] if self._loaded_em_data else None
                 
-                # Normalize labels to range [-1, 1]
+                # Normalize gaze location labels to range [-1, 1]
                 max_h, max_w = frames.shape[-2:]
                 frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
+
+                # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
+                if self._loaded_em_data:
+                    em_data = torch.tensor(self.em_encoder.transform(em_data[:, None]).toarray(), dtype=torch.int8)
 
                 sample_dict = {
                     "video": frames,

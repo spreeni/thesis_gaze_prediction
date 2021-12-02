@@ -10,6 +10,7 @@ numpy
 opencv-python
 pytorch-lightning
 pytorchvideo
+scikit-learn
 scipy
 timm
 tqdm

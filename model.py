@@ -37,14 +37,13 @@ def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
-                 fpn_only_use_last_layer, em_loss_scaling, rim_hidden_size, rim_num_units, rim_k,
+                 fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
                  rnn_cell, rim_layers, attention_heads):
         super().__init__()
 
         self.learning_rate = lr
         self.batch_size = batch_size
         self.predict_em = predict_em
-        self.em_loss_scaling = em_loss_scaling
 
         self.save_hyperparameters()
 
@@ -75,7 +74,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         with torch.no_grad():
             out, _, _ = self.rim(inp)
         embed_dim = out.shape[-1]
-        out_features = 3 if self.predict_em else 2
+        out_features = 6 if self.predict_em else 2
 
         self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads)
 
@@ -119,10 +118,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
     def loss(self, y_hat, batch):
         #return F.mse_loss(y_hat[:, :, :2], batch['frame_labels'])
-        not_noise = batch['em_data'] != 0
+        not_noise = batch['em_data'][:, :, 0] == 0
         loss = F.mse_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         if self.predict_em:
-            loss += F.mse_loss(y_hat[:, :, 2][not_noise], batch['em_data'][not_noise]) * self.em_loss_scaling
+            loss += F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -162,8 +161,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=False, em_loss_scaling=1,
-                rim_hidden_size=512, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=False,
+                rim_hidden_size=256, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
@@ -175,7 +174,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         input_dims=(244, 244), out_channels=out_channels,
                                                         predict_em=predict_em,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
-                                                        em_loss_scaling=em_loss_scaling, rim_hidden_size=rim_hidden_size,
+                                                        rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
                                                         rim_layers=rim_layers, attention_heads=attention_heads)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
@@ -192,7 +191,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         trainer.tune(regression_module, data_module)
     else:
         # early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
-        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=150, auto_lr_find=False, auto_scale_batch_size=False,
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=51, auto_lr_find=False, auto_scale_batch_size=False,
                                             fast_dev_run=False, log_every_n_steps=10)  # , early_stop_callback=early_stop_callback)
 
         trainer.fit(regression_module, data_module)
