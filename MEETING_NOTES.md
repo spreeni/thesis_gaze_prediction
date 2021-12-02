@@ -160,3 +160,14 @@
     - Gradient/Weights Update loggen
     - Feature Pyramid Features plotten
         - Tensor in Tensorboard loggen?
+- 01.12.21
+    - Nur für einen (zwei) Frame trainieren
+        - langsam an mehr Frames rantasten
+    - Normalisierung für Labels implementieren, Mitte als (0, 0) wählen
+    - Loss ist sehr hoch - Sollte überprüft werden
+    - Ausprobieren, die Top-Down Parameter einmal aus der Optmierung rausnehmen
+    - RIM-weights sollten ebenfalls geloggt werden
+    - Für RIM sind 3 Layer sehr viel, am besten am RIM-Paper ausrichten
+    - Aggregation zu 2 Gaze Koordinaten überarbeiten
+        - Am besten auch an Paper ausrichten
+    - Falls Maßnahmen keine Verbesserung ergeben, einfach direkt auf Pixel-Werten lernen (ohne FPN)
