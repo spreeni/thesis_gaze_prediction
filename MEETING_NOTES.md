@@ -171,3 +171,28 @@
     - Aggregation zu 2 Gaze Koordinaten überarbeiten
         - Am besten auch an Paper ausrichten
     - Falls Maßnahmen keine Verbesserung ergeben, einfach direkt auf Pixel-Werten lernen (ohne FPN)
+- 08.12.21
+    - Fortschritts-Update
+        - 2s Clip wird (mit etwas jitter) ganz gut gefittet
+            - Probleme waren zu kleine Anzahl hidden states in RIM und fehlende Normalisierung der Labels
+    - Teacher forcing implementieren
+        - An Feature Vektor ground truth von Vorschritt anhängen
+        - Vielleicht gleich mehrfach ground truth anhängen, damit sie benutzt wird
+        - Mit gewisser wahrscheinlichkeit jeweils teacher forcing anwenden in batch
+    - Struktur einbeziehen
+        - ConvLSTM
+            - Attention und 2D-hidden states
+                - Matrix-Mask lernen, Filterbänke anstatt
+            - Problematisch für Teacher Forcing
+        - Positional Encoding
+            - Parameter für Detailliertheit einbauen
+    - Parameter-Anzahl kein Problem solange es in den Speicher passt
+    - Batchsize sollte idealerweise mindestens 32 sein
+        - Sonst unterteilen (Pytorch Lightning hat vielleicht eine Option hierfür)
+    - RIM/FPN Parameter Histogramme verändern sich kaum
+        - ab jetzt auch Attention loggen
+        - Gradient magnitude loggen
+            - Veränderung der Gewichte loggen (Falls Update nicht funktioniert)
+        - Geschieht eine Normalisierung im Batch Update?
+    - Möglicherweise Ansatz mit Feature Pyramid Network nicht gut genug
+        - Recherche für Feature Extractor für Videos
