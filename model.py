@@ -132,6 +132,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             y_hat = self.forward(batch["video"], log_features=True)
             for name, param in self.fpn.fpn.named_parameters():
                 self.trainer.logger.experiment.add_histogram(f"fpn_{name}_epoch_{self.current_epoch}", param)
+            for name, param in self.rim.named_parameters():
+                self.trainer.logger.experiment.add_histogram(f"rim_{name}_epoch_{self.current_epoch}", param)
+            for name, param in self.multihead_attn.named_parameters():
+                self.trainer.logger.experiment.add_histogram(f"attn_{name}_epoch_{self.current_epoch}", param)
         else:
             y_hat = self.forward(batch["video"])
 
@@ -161,8 +165,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=False,
-                rim_hidden_size=256, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
+                rim_hidden_size=200, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
@@ -171,7 +175,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         regression_module = GazePredictionLightningModule.load_from_checkpoint(train_checkpoint).to(device=device)
     else:
         regression_module = GazePredictionLightningModule(lr=lr, batch_size=batch_size, frames=round(clip_duration * 29.97),
-                                                        input_dims=(244, 244), out_channels=out_channels,
+                                                        input_dims=(224, 224), out_channels=out_channels,
                                                         predict_em=predict_em,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         rim_hidden_size=rim_hidden_size,
@@ -190,9 +194,10 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=1, auto_lr_find=True, auto_scale_batch_size=False)
         trainer.tune(regression_module, data_module)
     else:
-        # early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
-        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=51, auto_lr_find=False, auto_scale_batch_size=False,
-                                            fast_dev_run=False, log_every_n_steps=10)  # , early_stop_callback=early_stop_callback)
+        tb_logger = pytorch_lightning.loggers.TensorBoardLogger("data/lightning_logs", name='')
+        early_stop_callback = pytorch_lightning.callbacks.early_stopping.EarlyStopping(monitor='train_loss', min_delta=0.002, patience=15, verbose=True, mode='min')
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=51, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
+                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback])
 
         trainer.fit(regression_module, data_module)
 
@@ -203,7 +208,8 @@ if __name__ == '__main__':
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
     _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
     _BATCH_SIZE = 8
-    _NUM_WORKERS = 1  # Number of parallel processes fetching data
+    _NUM_WORKERS = 1 # For one video
+    #_NUM_WORKERS = 8  # Number of parallel processes fetching data
     _OUT_CHANNELS = 16
 
     train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=False,
