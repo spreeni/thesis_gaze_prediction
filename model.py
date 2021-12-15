@@ -116,23 +116,34 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         x = x.reshape(batch_size, frames, features)
         x = torch.swapaxes(x, 0, 1)         # RIM expects tensor of shape (seq, B, features)
 
-        # If teacher forcing activated, extend features with possible teacher values
-        if self.n_teacher_vals > 0:
-            x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
-            if y is not None:
-                # Repeat label values n_teacher_vals times
-                teachers = torch.tile(torch.swapaxes(y, 0, 1), (1, 1, self.n_teacher_vals))[:-1, :, :]
-                
-                # Create random mask over timesteps and batch
-                random_mask = torch.FloatTensor(teachers.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+        # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
+        xs = list(torch.split(x, 1, dim = 0))
+        outputs = []
+        h, c = None, None
+        for i, x in enumerate(xs):
+            # If teacher forcing activated, extend features with possible teacher values
+            if self.n_teacher_vals > 0:
+                x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+                if y is not None and i != 0:
+                    y_prev = y[:, i-1, :]
 
-                # Add label values to input features of following time step
-                x[1:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = teachers[random_mask, :]
+                    # Repeat label values n_teacher_vals times
+                    teacher_vals = torch.tile(y_prev, (1, 1, self.n_teacher_vals))
+                    output_vals = torch.tile(output, (1, 1, self.n_teacher_vals))
 
-        # Sequential processing in RIM
-        out, h, c = self.rim(x)
+                    # Create random mask over batch
+                    random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
+                    # Add ground truth or output of previous iteration to input features of next iteration
+                    x[:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = teacher_vals[random_mask, :]
+                    x[:, :, -self.n_teacher_vals * self.out_features:][~random_mask, :] = output_vals[~random_mask, :]
+
+            x, h, c = self.rim(x, h=h, c=c)
+            output, attn_output_weights = self.multihead_attn(x, x, x)
+            outputs.append(output)
+        out = torch.cat(outputs, dim = 0)
+
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
-        out, attn_output_weights = self.multihead_attn(out, out, out)
         return out
 
     def loss(self, y_hat, batch):
