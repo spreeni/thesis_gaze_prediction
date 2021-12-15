@@ -196,3 +196,19 @@
         - Geschieht eine Normalisierung im Batch Update?
     - Möglicherweise Ansatz mit Feature Pyramid Network nicht gut genug
         - Recherche für Feature Extractor für Videos
+- 15.12.21
+    - Fortschritt-Update:
+        - Teacher-Forcing implementiert, aber loss wird immer noch nicht 0
+        - Statistiken über Blickverhalten über Videos/Observers erstellt
+    - Bislang mit Nullen gepaddet, wenn Teacher Forcing nicht angewandt wurde
+        - Sollte stattdessen Attention output verwenden
+        - RIM+Attention für jeden timestep anwenden, hidden states speichern und weitergeben
+            - Möglicherweise while loop optimieren mit torchscript
+    - Alternative Feature Extractor
+        - anderes ResNet model
+        - RLVC Autoencoder
+        - Pytorchvideo
+        - CompressAI
+        - Pytorch SlowFast
+            - Action recognition
+        - Implicit neural representations für Video Daten
