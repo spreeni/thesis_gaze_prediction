@@ -61,9 +61,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         n_features = out.shape[-1]
         print(f"FPN produces {n_features} different Features")
 
-        out_features = 6 if self.predict_em else 2
+        self.out_features = 6 if self.predict_em else 2
         if n_teacher_vals > 0:
-            n_features += n_teacher_vals * out_features
+            n_features += n_teacher_vals * self.out_features
 
         self.rim = RIM(
             device=device,
@@ -86,7 +86,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
-        self.multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(embed_dim, out_features, bias=self.multihead_attn.in_proj_bias is not None, **factory_kwargs)
+        self.multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(embed_dim, self.out_features, bias=self.multihead_attn.in_proj_bias is not None, **factory_kwargs)
         self.multihead_attn._reset_parameters()
 
     def forward(self, x, y=None, log_features=False):
@@ -118,13 +118,16 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # If teacher forcing activated, extend features with possible teacher values
         if self.n_teacher_vals > 0:
-            x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * y.shape[-1]), 0)(x)
-            if np.random.rand() < self.p_teacher_forcing:
+            x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+            if y is not None:
                 # Repeat label values n_teacher_vals times
-                teachers = torch.tile(y, (1, 1, self.n_teacher_vals))
+                teachers = torch.tile(torch.swapaxes(y, 0, 1), (1, 1, self.n_teacher_vals))[:-1, :, :]
                 
+                # Create random mask over timesteps and batch
+                random_mask = torch.FloatTensor(teachers.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
                 # Add label values to input features of following time step
-                x[:, 1:, -self.n_teacher_vals * y.shape[-1]:] = teachers[:, :-1, :]
+                x[1:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = teachers[random_mask, :]
 
         # Sequential processing in RIM
         out, h, c = self.rim(x)
@@ -144,6 +147,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
         # TODO: Include EM-classification in data
+        if self.current_epoch == 0:
+            for name, param in self.fpn.fpn.named_parameters():
+                print(f"fpn_{name}_epoch_{self.current_epoch}", param.shape)
+            for name, param in self.rim.named_parameters():
+                print(f"rim_{name}_epoch_{self.current_epoch}", param.shape)
+            for name, param in self.multihead_attn.named_parameters():
+                print(f"attn_{name}_epoch_{self.current_epoch}", param.shape)
         if self.current_epoch % 25 == 0:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'], log_features=True)
             for name, param in self.fpn.fpn.named_parameters():
@@ -154,7 +164,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 self.trainer.logger.experiment.add_histogram(f"attn_{name}_epoch_{self.current_epoch}", param)
         else:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'])
-
+        if self.current_epoch % 10 == 0:
+            print("y_hat:\n", y_hat[0, :, :2])
+            print("y:\n", batch['frame_labels'][0])
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
         # TODO: Implement specialized loss
@@ -166,7 +178,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        y_hat = self.forward(batch["video"], y=batch['frame_labels'])
+        y_hat = self.forward(batch["video"])
         loss = self.loss(y_hat, batch)
         self.log("val_loss", loss, batch_size=batch["video"].shape[0])
         self.log("hp_metric", loss)
@@ -182,8 +194,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
                 lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
-                rim_hidden_size=200, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
-                attention_heads=2, p_teacher_forcing=0.5, n_teacher_vals=10, train_checkpoint=None):
+                rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """
@@ -222,9 +234,10 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
 if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
     _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
-    _BATCH_SIZE = 32
+    _BATCH_SIZE = 16
     _NUM_WORKERS = 1 # For one video
     #_NUM_WORKERS = 8  # Number of parallel processes fetching data
     _OUT_CHANNELS = 16
