@@ -124,20 +124,24 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             # If teacher forcing activated, extend features with possible teacher values
             if self.n_teacher_vals > 0:
                 x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
-                if y is not None and i != 0:
-                    y_prev = y[:, i-1, :]
 
-                    # Repeat label values n_teacher_vals times
-                    teacher_vals = torch.tile(y_prev, (1, 1, self.n_teacher_vals))
-                    output_vals = torch.tile(output, (1, 1, self.n_teacher_vals))
+                if i != 0:
+                    # Add output of previous iteration to input features of next iteration
+                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals))
+                    x[:, :, -self.n_teacher_vals * self.out_features:] = output_repeated
 
-                    # Create random mask over batch
-                    random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+                    if y is not None:
+                        y_prev = y[:, i-1, :]
 
-                    # Add ground truth or output of previous iteration to input features of next iteration
-                    x[:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = teacher_vals[random_mask, :]
-                    x[:, :, -self.n_teacher_vals * self.out_features:][~random_mask, :] = output_vals[~random_mask, :]
+                        # Repeat label values n_teacher_vals times
+                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals))
 
+                        # Create random mask over batch
+                        random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
+                        # Add ground truth for random mask to input features of next iteration
+                        x[:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = y_prev_repeated[random_mask, :]
+                    
             x, h, c = self.rim(x, h=h, c=c)
             output, attn_output_weights = self.multihead_attn(x, x, x)
             outputs.append(output)
