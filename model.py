@@ -15,13 +15,13 @@ from feature_extraction import FeatureExtractor, FPN
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
+def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
     """
     Adds tensor as video to tensorboard logs.
 
     Expects frames in shape (T, C, H, W) or (T, H, W) for one-channel tensors.
     """
-    logger.add_histogram(f"{name}_hist", frames)
+    model.trainer.logger.experiment.add_histogram(f"{name}_hist", frames, model.global_step)
     if interpolate_range:
         frames = np.interp(frames, (frames.min(), frames.max()), (0, 255)).astype('uint8')
 
@@ -29,9 +29,9 @@ def log_tensor_as_video(logger, frames, name, fps=5, interpolate_range=True):
     if len(frames.shape) == 3:  # grayscale
         frames = frames[:, None, :, :]
     frames = torch.from_numpy(frames[None, :])
-
-    logger.add_video(
-        tag=name,
+    
+    model.trainer.logger.experiment.add_video(
+        tag=f"{name}_epoch_{model.current_epoch}",
         vid_tensor=frames,
         fps=fps)
 
@@ -95,7 +95,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         x = torch.swapaxes(x, 1, 2)
         if log_features:
             for i in range(min(batch_size, 2)): #(N,T,C,H,W)
-                log_tensor_as_video(self.trainer.logger.experiment, x[i].cpu().detach().numpy(), f"vids_epoch_{self.current_epoch}", fps=5, interpolate_range=True)
+                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids", fps=5, interpolate_range=True)
         
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
         x = x.reshape(batch_size * frames, 3, *input_dim)
@@ -108,7 +108,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 key_data = ch_data[key].cpu().detach().numpy()
                 channels = ch_data[key].shape[1]
                 for ch in range(channels):
-                    log_tensor_as_video(self.trainer.logger.experiment, key_data[:, ch, :, :], f"fpn_{key}_{ch}_epoch_{self.current_epoch}", fps=5, interpolate_range=True)
+                    log_tensor_as_video(self, key_data[:, ch, :, :], f"fpn_{key}_{ch}", fps=5, interpolate_range=True)
         else:
             x = self.fpn(x)
 
