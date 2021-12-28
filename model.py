@@ -162,7 +162,6 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
-        # TODO: Include EM-classification in data
         if self.current_epoch == 0:
             for name, param in self.fpn.fpn.named_parameters():
                 print(f"fpn_{name}_epoch_{self.current_epoch}", param.shape)
@@ -170,22 +169,27 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 print(f"rim_{name}_epoch_{self.current_epoch}", param.shape)
             for name, param in self.multihead_attn.named_parameters():
                 print(f"attn_{name}_epoch_{self.current_epoch}", param.shape)
+        
+        # Log features every 5th epoch
         if self.current_epoch % 5 == 0:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'], log_features=True)
-            for name, param in self.fpn.fpn.named_parameters():
-                self.trainer.logger.experiment.add_histogram(f"fpn_{name}", param, self.global_step)
-                if param.grad is not None:
-                    self.trainer.logger.experiment.add_histogram(f"fpn_{name}_grad", param.grad, self.global_step)
-            for name, param in self.rim.named_parameters():
-                self.trainer.logger.experiment.add_histogram(f"rim_{name}", param, self.global_step)
-                if param.grad is not None:
-                    self.trainer.logger.experiment.add_histogram(f"rim_{name}_grad", param.grad, self.global_step)
-            for name, param in self.multihead_attn.named_parameters():
-                self.trainer.logger.experiment.add_histogram(f"attn_{name}", param, self.global_step)
-                if param.grad is not None:
-                    self.trainer.logger.experiment.add_histogram(f"attn_{name}_grad", param.grad, self.global_step)
         else:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'])
+        
+        # Log histograms of model parameters and gradient
+        for name, param in self.fpn.fpn.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"fpn_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"fpn_{name}_grad", param.grad, self.global_step)
+        for name, param in self.rim.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"rim_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"rim_{name}_grad", param.grad, self.global_step)
+        for name, param in self.multihead_attn.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"attn_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"attn_{name}_grad", param.grad, self.global_step)
+
         if self.current_epoch % 10 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
             print("y:\n", batch['frame_labels'][0])
