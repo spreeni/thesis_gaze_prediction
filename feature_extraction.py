@@ -3,7 +3,7 @@ import timm
 
 from torchvision.models.feature_extraction import create_feature_extractor
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork
-
+import torchvision.models as models
 
 class FeatureExtractor(torch.nn.Module):
     """
@@ -14,20 +14,29 @@ class FeatureExtractor(torch.nn.Module):
         extractor = FeatureExtractor(input_dim, batch_size)
         features = extractor(inp)
     """
-    def __init__(self, device, input_dim=(720, 1280), batch_size=4):
+    def __init__(self, device, input_dim=(224, 224), batch_size=4, model='mobilenetv3_large_100'):
         super().__init__()
         self.device = device
 
-        # Get a MobileNet v3 backbone
-        m = timm.create_model('mobilenetv3_large_100', pretrained=True)
+        # Get a ResNet backbone
+        if model == 'mobilenetv3_large_100':
+            m = timm.create_model('mobilenetv3_large_100', pretrained=True)
+        elif model == 'efficientnet_b0':
+            m = models.efficientnet_b0()
+        else:
+            raise f"Unknown model name '{model}' given to FeatureExtractor"
 
         # Freeze parameters in backbone (only train top-down convolutions)
         for param in m.parameters():
             param.requires_grad = False
 
-        # Extract 6 main layers
+        # Extract features after each main layer
+        if model == 'mobilenetv3_large_100':
+            return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)}
+        elif model == 'efficientnet_b0':
+            return_nodes={f'features.{i}': str(i) for i in range(1, 8)}
         self.body = create_feature_extractor(
-            m, return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)}).to(device=self.device)
+            m, return_nodes=return_nodes).to(device=self.device)
 
         # Dry run to get number of channels for FPN
         inp = torch.randn(batch_size, 3, *input_dim, device=self.device)

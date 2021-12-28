@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import pytorch_lightning
+from torchinfo import summary
 
 from RIM import RIM
 
@@ -50,7 +51,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
-        self.backbone = FeatureExtractor(device, input_dims, self.batch_size)
+        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model='mobilenetv3_large_100')
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
                        only_use_last_layer=fpn_only_use_last_layer)
 
@@ -234,6 +235,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
+
+    summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
 
     if only_tune:
         # Find maximum batch size that fits into memory
