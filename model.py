@@ -159,6 +159,21 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             loss += F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
         return loss
 
+    def on_after_backward(self):
+        # Log histograms of model parameters and gradients
+        for name, param in self.fpn.fpn.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"fpn_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"fpn_{name}_grad", param.grad, self.global_step)
+        for name, param in self.rim.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"rim_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"rim_{name}_grad", param.grad, self.global_step)
+        for name, param in self.multihead_attn.named_parameters():
+            self.trainer.logger.experiment.add_histogram(f"attn_{name}", param, self.global_step)
+            if param.grad is not None:
+                self.trainer.logger.experiment.add_histogram(f"attn_{name}_grad", param.grad, self.global_step)
+
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
@@ -175,20 +190,6 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             y_hat = self.forward(batch["video"], y=batch['frame_labels'], log_features=True)
         else:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'])
-        
-        # Log histograms of model parameters and gradient
-        for name, param in self.fpn.fpn.named_parameters():
-            self.trainer.logger.experiment.add_histogram(f"fpn_{name}", param, self.global_step)
-            if param.grad is not None:
-                self.trainer.logger.experiment.add_histogram(f"fpn_{name}_grad", param.grad, self.global_step)
-        for name, param in self.rim.named_parameters():
-            self.trainer.logger.experiment.add_histogram(f"rim_{name}", param, self.global_step)
-            if param.grad is not None:
-                self.trainer.logger.experiment.add_histogram(f"rim_{name}_grad", param.grad, self.global_step)
-        for name, param in self.multihead_attn.named_parameters():
-            self.trainer.logger.experiment.add_histogram(f"attn_{name}", param, self.global_step)
-            if param.grad is not None:
-                self.trainer.logger.experiment.add_histogram(f"attn_{name}_grad", param.grad, self.global_step)
 
         if self.current_epoch % 10 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
@@ -254,7 +255,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         tb_logger = pytorch_lightning.loggers.TensorBoardLogger("data/lightning_logs", name='')
         early_stop_callback = pytorch_lightning.callbacks.early_stopping.EarlyStopping(monitor='train_loss', min_delta=0.002, patience=15, verbose=True, mode='min')
         trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=51, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
-                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback])
+                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback])#, track_grad_norm=2)
 
         trainer.fit(regression_module, data_module)
 
