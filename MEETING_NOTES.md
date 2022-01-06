@@ -212,3 +212,27 @@
         - Pytorch SlowFast
             - Action recognition
         - Implicit neural representations für Video Daten
+- 05.01.22
+    - Fortschritt-Update
+        - Teacher Forcing angepasst, verwendet jetzt standardmäßig letzten Output
+        - Anstatt MobileNet FPN mit EfficientNet B0 versucht
+            - schlechtere Performance, und Model/Passes werden riesig
+        - Gradient geloggt, gestaffelte Histogramme
+            - Nur attention verändert sich, nicht RIM/FPN parameters
+            - Gradient verändert sich für weights nicht besonders → vanishing gradient?
+        - In RLVC Autoencoder eingearbeitet
+    - Scheinbar Outlier bei Gradienten von RIM
+        - Möglicherweise Gradient clipping anwenden → Einlesen
+    - LSTM weights orthogonal initialisieren
+    - Initialisieren und nur Multihead-Attention out-Projection lernen
+        - dasselbe mit RIM/FPN
+    - Tatsächlichen Gradienten / Learningrate / Varianz loggen
+        - Zunächst vielleicht SGD verwenden (zunächst ohne Momentum)
+    - RIM-Gewichte normal-verteilt initialisieren?
+    - Bias verändert sich, die weights kaum (obwohl Gradienten ungleich null sind)
+        - Lediglich FPN Bias scheint sich rege zu verändern
+    - Pytorch Cockpit verwenden zum Debuggen
+    - In die Zukunft gucken nicht so fatal bei der Feature Extraction
+        - 3D Convolution kommt auch in Frage
+    - In FPN nur jedes 2. Layer entnehmen, um die Anzahl der Feature kleiner zu halten
+    - Video-Autoencoder suchen, von welchem wir Latents entnehmen können
