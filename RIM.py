@@ -143,19 +143,20 @@ class RIMCell(nn.Module):
         self.comm_query_size = comm_query_size
         self.comm_value_size = comm_value_size
 
-        self.key = nn.Linear(input_size, num_input_heads * input_query_size).to(self.device)
+        self.key = nn.Linear(input_size, num_input_heads * input_key_size).to(self.device)
         self.value = nn.Linear(input_size, num_input_heads * input_value_size).to(self.device)
+        self.query = GroupLinearLayer(hidden_size, num_input_heads * input_query_size, self.num_units)
 
         if self.rnn_cell == 'GRU':
             self.rnn = GroupGRUCell(input_value_size, hidden_size, num_units)
-            self.query = GroupLinearLayer(hidden_size, input_key_size * num_input_heads, self.num_units)
         else:
             self.rnn = GroupLSTMCell(input_value_size, hidden_size, num_units)
-            self.query = GroupLinearLayer(hidden_size, input_key_size * num_input_heads, self.num_units)
+
         self.query_ = GroupLinearLayer(hidden_size, comm_query_size * num_comm_heads, self.num_units)
         self.key_ = GroupLinearLayer(hidden_size, comm_key_size * num_comm_heads, self.num_units)
         self.value_ = GroupLinearLayer(hidden_size, comm_value_size * num_comm_heads, self.num_units)
         self.comm_attention_output = GroupLinearLayer(num_comm_heads * comm_value_size, comm_value_size, self.num_units)
+
         self.comm_dropout = nn.Dropout(p=input_dropout)
         self.input_dropout = nn.Dropout(p=comm_dropout)
 
