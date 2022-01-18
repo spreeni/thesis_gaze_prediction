@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import pytorch_lightning
 from torchinfo import summary
 
-from RIM import RIM
+from RIM import RIM, RIMCell, GroupLinearLayer
 
 from gaze_video_data_module import GazeVideoDataModule
 from feature_extraction import FeatureExtractor, FPN
@@ -39,7 +39,7 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
-                 rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals):
+                 rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals, weight_init):
         super().__init__()
 
         self.learning_rate = lr
@@ -88,6 +88,41 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
         self.multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(embed_dim, self.out_features, bias=self.multihead_attn.in_proj_bias is not None, **factory_kwargs)
+
+        # Freeze parameters except for attention
+        '''
+        for param in self.fpn.parameters():
+            param.requires_grad = False
+        for param in self.rim.parameters():
+            param.requires_grad = False
+        '''
+        
+        #self.reset_parameters()
+        self.multihead_attn._reset_parameters()
+
+    def reset_parameters(self):
+        linear_weight_init = {'xavier_normal': torch.nn.init.xavier_normal_, 'kaiming_uniform': torch.nn.init.kaiming_uniform_}
+        linear_weight_init = linear_weight_init.get(self.hparams.weight_init, lambda x: None) #lambda x: None means that if hparams gives unknown key then the weight_init is weight_init(x) = None -> stick to default weights
+
+        def weights_init(m):
+            if isinstance(m, torch.nn.Linear):
+                linear_weight_init(m.weight.data)
+            elif isinstance(m, GroupLinearLayer):
+                linear_weight_init(m.w.data)
+
+            if hasattr(m, 'bias') and m.bias is not None:
+                torch.nn.init.constant_(m.bias.data, 0.)
+
+        def weights_init_rnn(m):
+            def orthogonal_rnn_weight_init(m):
+                if isinstance(m, GroupLinearLayer):
+                    torch.nn.init.orthogonal_(m.w.data)
+
+            if isinstance(m, RIMCell):
+                m.rnn.apply(orthogonal_rnn_weight_init)
+            
+        self.apply(weights_init)
+        self.apply(weights_init_rnn)
         self.multihead_attn._reset_parameters()
 
     def forward(self, x, y=None, log_features=False):
@@ -199,7 +234,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # TODO: Implement specialized loss
         loss = self.loss(y_hat, batch)
 
-        # Log the train loss to Tensorboard
+        # Log the train loss and batch size to Tensorboard
+        self.log("batch_size", batch["video"].shape[0], prog_bar=True)
         self.log("train_loss", loss, batch_size=batch["video"].shape[0], prog_bar=True)
 
         return loss
@@ -207,6 +243,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def validation_step(self, batch, batch_idx):
         y_hat = self.forward(batch["video"])
         loss = self.loss(y_hat, batch)
+        self.log("batch_size_val", batch["video"].shape[0], prog_bar=True)
         self.log("val_loss", loss, batch_size=batch["video"].shape[0])
         self.log("hp_metric", loss)
         return loss
@@ -222,7 +259,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
                 lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
-                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, train_checkpoint=None):
+                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
+                gradient_clip_val=1., train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """
@@ -236,7 +274,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
                                                         rim_layers=rim_layers, attention_heads=attention_heads,
-                                                        p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals)
+                                                        p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals, weight_init=weight_init)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
@@ -255,7 +293,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         tb_logger = pytorch_lightning.loggers.TensorBoardLogger("data/lightning_logs", name='')
         early_stop_callback = pytorch_lightning.callbacks.early_stopping.EarlyStopping(monitor='train_loss', min_delta=0.002, patience=15, verbose=True, mode='min')
         trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=51, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
-                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback])#, track_grad_norm=2)
+                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback], gradient_clip_val=gradient_clip_val)#, track_grad_norm=2)
 
         trainer.fit(regression_module, data_module)
 
