@@ -165,7 +165,7 @@ class RIMCell(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def input_attention_mask(self, x, h, separate_channels=False):
+    def input_attention_mask(self, x, h):
         """
         Input : x (batch_size, 2, input_size) [The null input is appended along the first dimension]
                 h (batch_size, num_units, hidden_size)
@@ -192,7 +192,8 @@ class RIMCell(nn.Module):
 
         mask_[row_index, topk1.indices.view(-1)] = 1
 
-        if not separate_channels:
+        # For binary choice between input and null softmax suffices. For multiple channels use sigmoid
+        if attention_scores.shape[-1] == 2:
             attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
         else:
             attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
@@ -238,15 +239,14 @@ class RIMCell(nn.Module):
 
     def forward(self, x, hs, cs=None):
         """
-        Input : x (batch_size, 1 , input_size)
+        Input : x (batch_size, 1 , input_size) or (batch_size, 1, channels, input_size)
                 hs (batch_size, num_units, hidden_size)
                 cs (batch_size, num_units, hidden_size)
         Output: new hs, cs for LSTM
                 new hs for GRU
         """
         null_size = list(x.size())
-        separate_channels = (len(null_size) == 4)
-        if separate_channels:
+        if len(null_size) == 4:   # channels given separately
             null_size.pop(1)
             x = x.view(null_size)
         null_size[1] = 1
@@ -254,7 +254,7 @@ class RIMCell(nn.Module):
         x = torch.cat((x, null_input), dim=1)
 
         # Compute input attention
-        inputs, mask = self.input_attention_mask(x, hs, separate_channels=separate_channels)
+        inputs, mask = self.input_attention_mask(x, hs)
         h_old = hs * 1.0
         if cs is not None:
             c_old = cs * 1.0
