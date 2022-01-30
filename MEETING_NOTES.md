@@ -236,3 +236,43 @@
         - 3D Convolution kommt auch in Frage
     - In FPN nur jedes 2. Layer entnehmen, um die Anzahl der Feature kleiner zu halten
     - Video-Autoencoder suchen, von welchem wir Latents entnehmen können
+- 19.01.22
+    - Fortschritt-Update
+        - Einmal nur output attention trainiert
+            - → lernt nichts
+            - Zusammen mit RIM aber fast normale Ergebnisse (haben aber auch meiste Parameter, FPN ist verhältnismäßig klein)
+        - Normal-verteilte Initialisierung (und orthogonal für LSTM) versucht
+            - Model lernt plötzlich nicht mehr (warum?)
+        - FPN betrachtet nur jedes zweite Layer
+            - reduziert Parameter in FPN, allerdings nicht Features, wenn wir nur letztes Layer übernehmen
+        - Gradient clipping angewandt, durch Norm und Value
+    - RIM durch LSTM ersetzen um zu gucken ob sich weights verändern
+        - Sonst RIM mit weniger Parametern
+    - Vielleicht irgend ein dummer Fehler im Code (Loss-Funktion)
+    - weight decay einmal aussetzen
+        - Adam w hat automatisches weight decay
+    - Google: Ist es normal dass man in Tensorboard keine Veränderung (Histogramme) sieht?
+    - SGD ohne Momentum ausprobieren, besser nachzuvollziehen
+    - Aktivierung loggen in Tensorboard
+    - Idee: Saliency-maps pro Video aufbauen und viel betrachtete Regionen strikter werten in Loss-Funktion
+- 27.01.22
+    - Fortschritt-Update
+        - Pytorch LSTM anstatt RIM verwendet (multihead-attention + LSTMCell)
+            - trainiert deutlich solider und besser
+        - Ausprobiert mit n=1 und k=1
+            - ähnliche Ergebnisse
+            - Probleme anscheinend wenn nicht alle RIM units aktiv sind (k<n)
+        - 1 Video + 1 Observer anstatt von 1 Clip + 1 Observer versucht
+            - funktioniert leider noch kaum, loss springt sehr und konvergiert nur gering
+            - möglicherweise wegen batch_size (train_batch_size = 1)
+                - Dataloader umbauen?
+    - Unterschied ähnlich wie bei Dropout wenn nicht alle RIMs aktiv sind (nur dass hier in Validation Dropout auch passiert)
+    - Bouncing Ball environment hat deutlich kleinere Attention-Dimensionalität
+        - Wie können RIMs Ball folgen wenn sie spatial begrenzt sind?
+        - Attention über Feature Channels implementieren, nicht alle Pixel
+            - key_w,  value_w block-mäßig strukturieren
+            - Features per channel embedden
+    - Einfach pre-trained Output direkt ohne FPN verwenden
+        - oder mit Segmentierungs-Maske (haben wir nicht für GazeCom)
+    - Möglicherweise erst nur mit allen RIMs aktiv trainieren (n=k)
+    - Weight-changes loggen
