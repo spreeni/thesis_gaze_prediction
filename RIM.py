@@ -165,7 +165,7 @@ class RIMCell(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def input_attention_mask(self, x, h):
+    def input_attention_mask(self, x, h, separate_channels=False):
         """
         Input : x (batch_size, 2, input_size) [The null input is appended along the first dimension]
                 h (batch_size, num_units, hidden_size)
@@ -185,14 +185,17 @@ class RIMCell(nn.Module):
         attention_scores = torch.mean(attention_scores, dim=1)
         mask_ = torch.zeros(x.size(0), self.num_units).to(self.device)
 
-        not_null_scores = attention_scores[:, :, 0]
+        not_null_scores = attention_scores[:, :, :-1].sum(dim=-1)
         topk1 = torch.topk(not_null_scores, self.k, dim=1)
         row_index = np.arange(x.size(0))
         row_index = np.repeat(row_index, self.k)
 
         mask_[row_index, topk1.indices.view(-1)] = 1
 
-        attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+        if not separate_channels:
+            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+        else:
+            attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
         inputs = torch.matmul(attention_probs, value_layer) * mask_.unsqueeze(2)
 
         return inputs, mask_
@@ -241,12 +244,17 @@ class RIMCell(nn.Module):
         Output: new hs, cs for LSTM
                 new hs for GRU
         """
-        size = x.size()
-        null_input = torch.zeros(size[0], 1, size[2]).float().to(self.device)
+        null_size = list(x.size())
+        separate_channels = (len(null_size) == 4)
+        if separate_channels:
+            null_size.pop(1)
+            x = x.view(null_size)
+        null_size[1] = 1
+        null_input = torch.zeros(*null_size).float().to(self.device)
         x = torch.cat((x, null_input), dim=1)
 
         # Compute input attention
-        inputs, mask = self.input_attention_mask(x, hs)
+        inputs, mask = self.input_attention_mask(x, hs, separate_channels=separate_channels)
         h_old = hs * 1.0
         if cs is not None:
             c_old = cs * 1.0
