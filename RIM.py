@@ -185,8 +185,11 @@ class RIMCell(nn.Module):
         attention_scores = torch.mean(attention_scores, dim=1)
         mask_ = torch.zeros(x.size(0), self.num_units).to(self.device)
 
-        not_null_scores = attention_scores[:, :, :-1].sum(dim=-1)
-        topk1 = torch.topk(not_null_scores, self.k, dim=1)
+        # Either prioritize the signal that receives the highest attention score or where the null-input receives the lowest score
+        #not_null_scores = attention_scores[:, :, :-1].sum(dim=-1)
+        #topk1 = torch.topk(not_null_scores, self.k, dim=1)
+        null_scores = attention_scores[:, :, -1]
+        topk1 = torch.topk(null_scores, self.k, dim=1, largest=False)
         row_index = np.arange(x.size(0))
         row_index = np.repeat(row_index, self.k)
 

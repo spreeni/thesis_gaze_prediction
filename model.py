@@ -42,7 +42,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
                  rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals,
-                 weight_init, mode):
+                 weight_init, mode, channel_wise_attention):
         super().__init__()
 
         self.rim_hidden_size = rim_hidden_size
@@ -51,6 +51,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.predict_em = predict_em
         self.p_teacher_forcing = p_teacher_forcing
         self.n_teacher_vals = n_teacher_vals
+        self.channel_wise_attention = channel_wise_attention
 
         self.mode = mode
 
@@ -59,7 +60,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Feature Pyramid Network for feature extraction
         self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model='mobilenetv3_large_100')
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
-                       only_use_last_layer=fpn_only_use_last_layer)
+                       separate_channels=self.channel_wise_attention, only_use_last_layer=fpn_only_use_last_layer)
 
         # Dry run to get input size for RIM
         inp = torch.randn(self.batch_size * frames, 3, *input_dims)
@@ -87,7 +88,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             )
 
         # Dry run to get input size for end layer
-        inp = torch.randn(frames, self.batch_size, n_features, device=device)
+        inp = torch.randn(frames, self.batch_size, 1 if not self.channel_wise_attention else out_channels, n_features, device=device)
         with torch.no_grad():
             if self.mode == 'LSTM':
                 out, _ = self.lstm(inp)
@@ -163,8 +164,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             x = self.fpn(x)
 
         # De-tangle batches and frames again
-        features = x.shape[1]
-        x = x.reshape(batch_size, frames, features)
+        features = x.shape[-1]
+        x = x.reshape(batch_size, frames, -1, features)
+        out_channels = x.shape[2]
         x = torch.swapaxes(x, 0, 1)         # RIM expects tensor of shape (seq, B, features)
 
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
@@ -183,21 +185,20 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
                 if i != 0:
                     # Add output of previous iteration to input features of next iteration
-                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals))
-                    x[:, :, -self.n_teacher_vals * self.out_features:] = output_repeated
+                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
+                    x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
 
                     if y is not None:
                         y_prev = y[:, i-1, :]
 
                         # Repeat label values n_teacher_vals times
-                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals))
+                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
 
                         # Create random mask over batch
                         random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
 
                         # Add ground truth for random mask to input features of next iteration
-                        x[:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = y_prev_repeated[random_mask, :]
-                    
+                        x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
             if self.mode == 'LSTM':
                 x, (h, c) = self.lstm(x, (h, c))
             else:
@@ -327,7 +328,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                 lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
                 rim_hidden_size=400, rim_num_units=6, rim_k=6, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
-                gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', train_checkpoint=None):
+                gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', train_checkpoint=None,
+                channel_wise_attention=True):
     """
     Train or tune the model on the data in data_path.
     """
@@ -342,7 +344,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
                                                         rim_layers=rim_layers, attention_heads=attention_heads,
                                                         p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals, 
-                                                        weight_init=weight_init, mode=mode)
+                                                        weight_init=weight_init, mode=mode, channel_wise_attention=channel_wise_attention)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
@@ -378,7 +380,7 @@ if __name__ == '__main__':
     _BATCH_SIZE = 16
     _NUM_WORKERS = 1 # For one video
     #_NUM_WORKERS = 8  # Number of parallel processes fetching data
-    _OUT_CHANNELS = 2
+    _OUT_CHANNELS = 8
 
     train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=False,
                  fpn_only_use_last_layer=True)#, train_checkpoint="lightning_logs/version_52/checkpoints/epoch=87-step=86.ckpt")
