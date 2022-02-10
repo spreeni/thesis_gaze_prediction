@@ -84,7 +84,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 k=rim_k,
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
-                bidirectional=False
+                bidirectional=False,
+                num_input_heads=2
+                #input_key_size=512,
+                #input_query_size=512,
+                #input_value_size=1600,
+                #comm_value_size=100
             )
 
         # Dry run to get input size for end layer
@@ -114,7 +119,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         #self.reset_parameters()
         self.multihead_attn._reset_parameters()
 
-        self.param_vals = dict()
+        self.sample_param_vals = dict()
+        self.prev_param_vals = dict()
 
     def reset_parameters(self):
         linear_weight_init = {'xavier_normal': torch.nn.init.xavier_normal_, 'kaiming_uniform': torch.nn.init.kaiming_uniform_}
@@ -218,13 +224,23 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             loss += F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
         return loss
 
-    def plot_param_vals(self):
+    def save_and_plot_param_changes(self, param_name, curr_param_val):
+        # Calculates param change in current step and plots histogram, then saves current param values
+        if param_name in self.prev_param_vals:
+            change = curr_param_val  - self.prev_param_vals[param_name]
+            self.trainer.logger.experiment.add_histogram(f"{param_name}_change", change, self.global_step)
+            self.trainer.logger.experiment.add_scalar(f"{param_name}_change_min", change.min(), self.global_step)
+            self.trainer.logger.experiment.add_scalar(f"{param_name}_change_max", change.max(), self.global_step)
+            self.trainer.logger.experiment.add_scalar(f"{param_name}_change_std", change.std(), self.global_step)
+        self.prev_param_vals[param_name] = curr_param_val.detach().clone()
+
+    def plot_sample_param_values(self):
         # Plot evolution of param values over epochs
-        for name in self.param_vals:
+        for name in self.sample_param_vals:
             fig = plt.figure()
             ax = fig.add_subplot(projection='3d')
 
-            vals = np.array(self.param_vals[name]).T
+            vals = np.array(self.sample_param_vals[name]).T
             n_epochs = vals.shape[1]
             epochs = list(range(n_epochs))
             for y, val in enumerate(vals):
@@ -232,60 +248,40 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
             self.trainer.logger.experiment.add_figure(f"{name}_params", fig)
 
-    def save_param_val(self, name, vals):
+    def save_sample_param_values(self, name, vals):
         # Save first 20 param values over epochs
-        if not name in self.param_vals:
-            self.param_vals[name] = []
-        self.param_vals[name].append(vals.detach().cpu().flatten()[:20].numpy())
+        if not name in self.sample_param_vals:
+            self.sample_param_vals[name] = []
+        self.sample_param_vals[name].append(vals.detach().cpu().flatten()[:20].numpy())
 
     def on_after_backward(self):
-        # Log histograms of model parameters and gradients
-        for name, param in self.fpn.fpn.named_parameters():
-            self.trainer.logger.experiment.add_histogram(f"fpn_{name}", param, self.global_step)
-            self.save_param_val(f"fpn_{name}", param)
-            if param.grad is not None:
-                self.trainer.logger.experiment.add_histogram(f"fpn_{name}_grad", param.grad, self.global_step)
-                self.save_param_val(f"fpn_{name}_grad", param.grad)
-        if self.mode == 'LSTM':
-            for name, param in self.lstm.named_parameters():
-                self.trainer.logger.experiment.add_histogram(f"lstm_{name}", param, self.global_step)
-                self.save_param_val(f"lstm_{name}", param)
+        # Log histograms of model parameters, gradients and parameter changes
+        for name, param in self.named_parameters():
+            if not name.startswith('backbone.'):
+                # Log param values
+                self.trainer.logger.experiment.add_histogram(name, param, self.global_step)
+                self.save_sample_param_values(name, param)
+
+                # Log param changes
+                self.save_and_plot_param_changes(name, param)
+
+                # Log gradients
                 if param.grad is not None:
-                    self.trainer.logger.experiment.add_histogram(f"lstm_{name}_grad", param.grad, self.global_step)
-                    self.save_param_val(f"lstm_{name}_grad", param.grad)
-        else:
-            for name, param in self.rim.named_parameters():
-                self.trainer.logger.experiment.add_histogram(f"rim_{name}", param, self.global_step)
-                self.save_param_val(f"rim_{name}", param)
-                if param.grad is not None:
-                    self.trainer.logger.experiment.add_histogram(f"rim_{name}_grad", param.grad, self.global_step)
-                    self.save_param_val(f"rim_{name}_grad", param.grad)
-        for name, param in self.multihead_attn.named_parameters():
-            self.trainer.logger.experiment.add_histogram(f"attn_{name}", param, self.global_step)
-            self.save_param_val(f"attn_{name}", param)
-            if param.grad is not None:
-                self.trainer.logger.experiment.add_histogram(f"attn_{name}_grad", param.grad, self.global_step)
-                self.save_param_val(f"attn_{name}_grad", param.grad)
+                    self.trainer.logger.experiment.add_histogram(f"{name}_grad", param.grad, self.global_step)
+                    self.save_sample_param_values(f"{name}_grad", param.grad)
 
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
         if self.current_epoch == 0:
-            for name, param in self.fpn.fpn.named_parameters():
-                print(f"fpn_{name}_epoch_{self.current_epoch}", param.shape)
-            if self.mode == 'LSTM':
-                for name, param in self.lstm.named_parameters():
-                    print(f"lstm_{name}_epoch_{self.current_epoch}", param.shape)
-            else:
-                for name, param in self.rim.named_parameters():
-                    print(f"rim_{name}_epoch_{self.current_epoch}", param.shape)
-            for name, param in self.multihead_attn.named_parameters():
-                print(f"attn_{name}_epoch_{self.current_epoch}", param.shape)
+            for name, param in self.named_parameters():
+                if not name.startswith('backbone.'):
+                    print(f"{name}_epoch_{self.current_epoch}", param.shape)
         
         # Very experimental as a time point
         if self.current_epoch == 45:
             print("plotting param values!")
-            self.plot_param_vals()
+            self.plot_sample_param_values()
 
         # Log features every 5th epoch
         if self.current_epoch % 5 == 0:
@@ -326,10 +322,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
                 lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
-                rim_hidden_size=400, rim_num_units=6, rim_k=6, rnn_cell='LSTM', rim_layers=1, 
+                rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', train_checkpoint=None,
-                channel_wise_attention=True):
+                channel_wise_attention=False):
     """
     Train or tune the model on the data in data_path.
     """
