@@ -185,22 +185,23 @@ class RIMCell(nn.Module):
         attention_scores = torch.mean(attention_scores, dim=1)
         mask_ = torch.zeros(x.size(0), self.num_units).to(self.device)
 
-        # Either prioritize the signal that receives the highest attention score or where the null-input receives the lowest score
-        #not_null_scores = attention_scores[:, :, :-1].sum(dim=-1)
-        #topk1 = torch.topk(not_null_scores, self.k, dim=1)
-        null_scores = attention_scores[:, :, -1]
-        topk1 = torch.topk(null_scores, self.k, dim=1, largest=False)
-        row_index = np.arange(x.size(0))
-        row_index = np.repeat(row_index, self.k)
-
-        mask_[row_index, topk1.indices.view(-1)] = 1
-
         # For binary choice between input and null softmax suffices. For multiple channels use sigmoid
         if attention_scores.shape[-1] == 2:
             attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
         else:
             #attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
             attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+
+        # Either prioritize the signal that receives the highest attention score or where the null-input receives the lowest score
+        #not_null_scores = attention_probs[:, :, :-1].sum(dim=-1)
+        #topk1 = torch.topk(not_null_scores, self.k, dim=1)
+        null_scores = attention_probs[:, :, -1]
+        topk1 = torch.topk(null_scores, self.k, dim=1, largest=False)
+        row_index = np.arange(x.size(0))
+        row_index = np.repeat(row_index, self.k)
+
+        mask_[row_index, topk1.indices.view(-1)] = 1
+
         inputs = torch.matmul(attention_probs, value_layer) * mask_.unsqueeze(2)
 
         return inputs, mask_
@@ -259,6 +260,7 @@ class RIMCell(nn.Module):
 
         # Compute input attention
         inputs, mask = self.input_attention_mask(x, hs)
+        
         h_old = hs * 1.0
         if cs is not None:
             c_old = cs * 1.0
