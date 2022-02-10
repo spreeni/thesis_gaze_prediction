@@ -199,7 +199,8 @@ class RIMCell(nn.Module):
         if attention_scores.shape[-1] == 2:
             attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
         else:
-            attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
+            #attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
+            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
         inputs = torch.matmul(attention_probs, value_layer) * mask_.unsqueeze(2)
 
         return inputs, mask_
