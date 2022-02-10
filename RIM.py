@@ -248,8 +248,6 @@ class RIMCell(nn.Module):
 
         # Compute input attention
         inputs, mask = self.input_attention_mask(x, hs)
-        
-        self.mask = mask
 
         h_old = hs * 1.0
         if cs is not None:
