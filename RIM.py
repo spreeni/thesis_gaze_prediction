@@ -185,14 +185,14 @@ class RIMCell(nn.Module):
         attention_scores = torch.mean(attention_scores, dim=1)
         mask_ = torch.zeros(x.size(0), self.num_units).to(self.device)
 
-        not_null_scores = attention_scores[:, :, 0]
+        attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+        not_null_scores = attention_probs[:, :, 0]
         topk1 = torch.topk(not_null_scores, self.k, dim=1)
         row_index = np.arange(x.size(0))
         row_index = np.repeat(row_index, self.k)
 
         mask_[row_index, topk1.indices.view(-1)] = 1
 
-        attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
         inputs = torch.matmul(attention_probs, value_layer) * mask_.unsqueeze(2)
 
         return inputs, mask_
@@ -241,12 +241,16 @@ class RIMCell(nn.Module):
         Output: new hs, cs for LSTM
                 new hs for GRU
         """
+
         size = x.size()
         null_input = torch.zeros(size[0], 1, size[2]).float().to(self.device)
         x = torch.cat((x, null_input), dim=1)
 
         # Compute input attention
         inputs, mask = self.input_attention_mask(x, hs)
+        
+        self.mask = mask
+
         h_old = hs * 1.0
         if cs is not None:
             c_old = cs * 1.0

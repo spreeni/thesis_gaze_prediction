@@ -130,3 +130,5 @@ dmypy.json
 
 # Pycharm
 .idea/
+test_autoreload.py
+test_RIM.py
