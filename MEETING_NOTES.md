@@ -276,3 +276,35 @@
         - oder mit Segmentierungs-Maske (haben wir nicht für GazeCom)
     - Möglicherweise erst nur mit allen RIMs aktiv trainieren (n=k)
     - Weight-changes loggen
+- 02.02.22
+    - Fortschritts-Update
+        - nicht sicher, ob channel-spezifische Attention die Lösung ist, da es im LSTM ja ohne funktioniert
+        - RIMs bei k<n schlechter war zu erwarten, aber nicht in diesem Maße - möglicherweise mehr Generalisierung
+        - Input-attention channel-wise implementiert
+            - RIM-dimension auf HxW gesetzt
+            - top_k nach höchster Summe über channel-attention scores
+            - alternativ nach niedrigstem score auf Null-Input
+        - Schlechtere Ergebnisse als mit voriger Attention
+            - Vielleicht findet die Attention bessere Zusammenhänge als die Channel?
+        - Habe erstmal nichts gefunden, um die Parameter-Changes aus dem Optimizer zu loggen, aber gucke da nochmal drauf
+    - Channel-spezifische Key/Value
+        
+        → bisher erhalten alle Channels dieselben queries/keys
+        
+    - Problematisch channels zu mixen in Attention-Prozess
+    - Multihead-Attention mit Softmax implementieren
+    - RIM-Aktivierung möglicherweise visualisieren
+    - Optimizer-Paramete aus model state_dict loggen
+- 09.02.22
+    - Fortschritts-Update
+        - Multihead-Attention with Softmax for channel-specific attention does not perform better than naive attention
+        - Tried different key, value, query sizes for attention process, but little impact
+    - Param changes stichprobenmäßig plotten
+    - Adam Varianz loggen
+    - Initialisierung im Originalpaper testen
+        - Input-Attention auch uniform initialisiert?
+    - Currently blocking gradient through inactive units, but does this make sense?
+        - Blocked-gradient im Original-Paper nachvollziehen
+    - Mask also on communication attention? Im paper auch auf nicht-aktiven Units
+        - vermutlich so dass nur aktive lesen können, aber dann von allen anderen Units
+    - Mehr RIMs und auf ganzem Video anwenden
