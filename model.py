@@ -223,7 +223,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         loss = F.l1_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         #loss = F.smooth_l1_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         if self.predict_em:
-            loss += F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
+            loss_em = F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
+            self.log("gaze_loss", loss, prog_bar=True)
+            self.log("em_phase_loss", loss_em, prog_bar=True)
+            loss += loss_em
         return loss
 
     def save_and_plot_param_changes(self, param_name, curr_param_val):
@@ -286,10 +289,14 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             self.plot_sample_param_values()
 
         # Log features every 5th epoch
-        if self.global_step % 5 == 0:
-            y_hat = self.forward(batch["video"], y=batch['frame_labels'], log_features=True)
+        if self.predict_em:
+            y = torch.concat((batch['frame_labels'], batch['em_data']), dim=-1)
         else:
-            y_hat = self.forward(batch["video"], y=batch['frame_labels'])
+            y = batch['frame_labels']
+        if self.global_step % 5 == 0:
+            y_hat = self.forward(batch["video"], y=y, log_features=True)
+        else:
+            y_hat = self.forward(batch["video"], y=y)
 
         if self.global_step % 10 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
@@ -380,5 +387,5 @@ if __name__ == '__main__':
     #_NUM_WORKERS = 12  # Number of parallel processes fetching data
     _OUT_CHANNELS = 8
 
-    train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=False,
+    train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=True,
                  fpn_only_use_last_layer=True)#, train_checkpoint="lightning_logs/version_52/checkpoints/epoch=87-step=86.ckpt")
