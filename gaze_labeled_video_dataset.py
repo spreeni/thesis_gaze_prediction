@@ -253,7 +253,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
                 # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
                 if self._loaded_em_data:
-                    em_data = torch.tensor(self.em_encoder.transform(em_data[:, None]).toarray(), dtype=torch.int8)
+                    em_data = torch.tensor(self.em_encoder.transform(em_data[:, None]).toarray(), dtype=torch.float32)
 
                 sample_dict = {
                     "video": frames,
