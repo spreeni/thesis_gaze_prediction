@@ -308,3 +308,26 @@
     - Mask also on communication attention? Im paper auch auf nicht-aktiven Units
         - vermutlich so dass nur aktive lesen können, aber dann von allen anderen Units
     - Mehr RIMs und auf ganzem Video anwenden
+- 16.02.22
+    - Fortschritts-Update
+        - Bug in Input-Attention fixed, dass topk vor dem Softmax angewendet wurde
+            - Ausprobiert mit einzelnem Clip, einzelnem Video and allen Videos
+                - Alle Videos Probleme wegen Logging overhead log overhead
+            - Bei Sampling von Model, welches auf einzelnem Video trainiert wurde beginnt die Prediction mit stark versetztem Scanpath, bevor es gut vorhersagt
+        - Leichte Fixierung zur Mitte in Videos erkennbar
+            - Loss anpassen?
+    - Loss spezialisieren
+        - Mitte bestrafen
+            - Etwas besseres als L2-Loss? (e.g. L1-Loss)
+        - spezialisieren auf Saccade/Loss/FP
+            - Trajektorien berücksichtigen
+                - Teacher forcing für Bewegungsrichtung?
+    - Eye-Movement phase Prediction reinnehmen in das Model
+        - Idealerweise lernt das Model das phases und gaze korrelieren
+        - Möglicherweise müssen gaze loss aus MSE/L1 und EM-loss aus cross_entropy noch verschieden gewichtet werden
+    - Möglicherweise RIM-Spezialisierung überprüfen
+        - Direkt aus Backbone Features entnehmen (Top-Down Prozess auslassen) und gucken welche Layer verwendet werden
+            - Allerdings aufwending und möglicherweise problematisch mit geflatteten RIM-Input
+    - Nach Bugfix nochmal Hyperparameter-Suche durchführen, schauen ob wir realistischen Scanpath wenigstens auf einem Video hinkriegen (so dass Nico es nicht unterscheiden kann)
+    - Im RIM-Paper wird für strukturierten Input Positional Encoding vorgeschlagen, möglicherweise in Patches anwenden
+        - Allerdings aufwendig und Patches nicht flexibel (falls Objekte durch Patches gehen)
