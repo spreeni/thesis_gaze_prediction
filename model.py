@@ -33,7 +33,7 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
     frames = torch.from_numpy(frames[None, :])
     
     model.trainer.logger.experiment.add_video(
-        tag=f"{name}_epoch_{model.current_epoch}",
+        tag=f"{name}_epoch_{model.global_step}",
         vid_tensor=frames,
         fps=fps)
 
@@ -219,7 +219,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def loss(self, y_hat, batch):
         #return F.mse_loss(y_hat[:, :, :2], batch['frame_labels'])
         not_noise = batch['em_data'][:, :, 0] == 0
-        loss = F.mse_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        #loss = F.mse_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        loss = F.l1_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        #loss = F.smooth_l1_loss(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         if self.predict_em:
             loss += F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
         return loss
@@ -273,23 +275,23 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def training_step(self, batch, batch_idx):
         # The model expects a video tensor of shape (B, C, T, H, W), which is the
         # format provided by the dataset
-        if self.current_epoch == 0:
+        if self.global_step == 0:
             for name, param in self.named_parameters():
                 if not name.startswith('backbone.'):
-                    print(f"{name}_epoch_{self.current_epoch}", param.shape)
+                    print(f"{name}_epoch_{self.global_step}", param.shape)
         
         # Very experimental as a time point
-        if self.current_epoch == 45:
+        if self.global_step == 45:
             print("plotting param values!")
             self.plot_sample_param_values()
 
         # Log features every 5th epoch
-        if self.current_epoch % 5 == 0:
+        if self.global_step % 5 == 0:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'], log_features=True)
         else:
             y_hat = self.forward(batch["video"], y=batch['frame_labels'])
 
-        if self.current_epoch % 10 == 0:
+        if self.global_step % 10 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
             print("y:\n", batch['frame_labels'][0])
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
@@ -321,7 +323,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=False, fpn_only_use_last_layer=True,
+                lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', train_checkpoint=None,
@@ -375,7 +377,7 @@ if __name__ == '__main__':
     _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
     _BATCH_SIZE = 16
     _NUM_WORKERS = 1 # For one video
-    #_NUM_WORKERS = 8  # Number of parallel processes fetching data
+    #_NUM_WORKERS = 12  # Number of parallel processes fetching data
     _OUT_CHANNELS = 8
 
     train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=False,
