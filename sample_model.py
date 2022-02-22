@@ -13,14 +13,14 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_217"
+_OUTPUT_DIR = r"data/sample_outputs/version_224"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
-_CHECKPOINT_PATH = r'data/lightning_logs/version_217/checkpoints/epoch=130-step=130.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_224/checkpoints/epoch=71-step=71.ckpt'
 
 _SCALE_UP = True
 
@@ -69,13 +69,13 @@ for i in range(0, samples):
     if y_hat.shape[1] > 2:
         em_data_hat = y_hat[:, 2:]
         y_hat = y_hat[:, :2]
-        em_data_hat = em_encoder.inverse_transform(em_data_hat)
+        em_data_hat = em_encoder.inverse_transform(em_data_hat).reshape((-1))
 
     print("y_hat")
     print(y_hat[:5])
     print("y")
     print(y[:5])
-    if em_data_hat:
+    if em_data_hat is not None:
         print("em_data_hat")
         print(em_data_hat[:20])
         print("em_data")
