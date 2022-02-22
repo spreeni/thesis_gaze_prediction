@@ -88,7 +88,9 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         train_dataset = gaze_labeled_video_dataset(
             data_path=os.path.join(self._DATA_PATH, "train"),
             clip_sampler=make_clip_sampler("random", self._CLIP_DURATION),
-            video_sampler=torch.utils.data.RandomSampler,
+            #video_sampler=torch.utils.data.RandomSampler,
+            #clip_sampler=make_clip_sampler("uniform", self._CLIP_DURATION),
+            video_sampler=torch.utils.data.SequentialSampler,
             transform=TRAIN_TRANSFORM,
             #transform=None,
             video_file_suffix=self._VIDEO_SUFFIX,

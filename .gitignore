@@ -132,3 +132,14 @@ dmypy.json
 .idea/
 test_autoreload.py
 test_RIM.py
+
+# VS Code
+*.code-workspace
+
+# Don't track video/gaze data and lightning logs
+data
+
+# temporary files and lr-finder/batch-size-finder logs
+tmp_*
+lr_find_temp_*
+scale_batch_size_temp_*

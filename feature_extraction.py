@@ -61,7 +61,7 @@ class FPN(torch.nn.Module):
     only_use_last_layer specifies if only the bottom-most layer features should be output or a concatenation of all
     resulting layer features
     """
-    def __init__(self, device, in_channels_list=None, out_channels=16, only_use_last_layer=False):
+    def __init__(self, device, in_channels_list=None, out_channels=16, only_use_last_layer=False, separate_channels=True):
         super().__init__()
 
         # Build FPN
@@ -69,17 +69,19 @@ class FPN(torch.nn.Module):
             in_channels_list = [24, 40, 80, 112, 160, 960]  # for 6 layers of mobilenetv3_large_100
         self.out_channels = out_channels
         self.only_use_last_layer = only_use_last_layer
+        self.separate_channels = separate_channels
         self.fpn = FeaturePyramidNetwork(
             in_channels_list, out_channels=self.out_channels).to(device=device)
 
     def forward(self, x, return_channels=False):
         x = self.fpn(x)
         ch_data = x.copy()
+        flatten_start_d = 2 if self.separate_channels else 1
         if self.only_use_last_layer:  # Output last layer of FPN
             ch_data = {list(ch_data.keys())[0]: ch_data[list(ch_data.keys())[0]]}
-            x = x[list(x.keys())[0]].flatten(start_dim=1)
+            x = x[list(x.keys())[0]].flatten(start_dim=flatten_start_d)
         else:                         # Concatenate outputs of all FPN layers
-            x = torch.cat([t.flatten(start_dim=1) for t in x.values()], 1)
+            x = torch.cat([t.flatten(start_dim=flatten_start_d) for t in x.values()], flatten_start_d)
         if return_channels:
             return x, ch_data
         else:

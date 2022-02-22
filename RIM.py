@@ -185,9 +185,20 @@ class RIMCell(nn.Module):
         attention_scores = torch.mean(attention_scores, dim=1)
         mask_ = torch.zeros(x.size(0), self.num_units).to(self.device)
 
-        attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
-        not_null_scores = attention_probs[:, :, 0]
-        topk1 = torch.topk(not_null_scores, self.k, dim=1)
+        # For binary choice between input and null softmax suffices.
+        # For multiple channels use sigmoid if multiple channels shall be mixed or use Softmax with multihead attention.
+        if attention_scores.shape[-1] == 2:
+            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+        else:
+            #attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
+            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+
+        # Either prioritize the signal that receives the highest accumulated attention probability 
+        # or where the null-input receives the lowest attention probability
+        #not_null_probs = attention_probs[:, :, :-1].sum(dim=-1)
+        #topk1 = torch.topk(not_null_probs, self.k, dim=1)
+        null_probs = attention_probs[:, :, -1]
+        topk1 = torch.topk(null_probs, self.k, dim=1, largest=False)
         row_index = np.arange(x.size(0))
         row_index = np.repeat(row_index, self.k)
 
@@ -235,20 +246,22 @@ class RIMCell(nn.Module):
 
     def forward(self, x, hs, cs=None):
         """
-        Input : x (batch_size, 1 , input_size)
+        Input : x (batch_size, 1 , input_size) or (batch_size, 1, channels, input_size) for channel-wise attention
                 hs (batch_size, num_units, hidden_size)
                 cs (batch_size, num_units, hidden_size)
         Output: new hs, cs for LSTM
                 new hs for GRU
         """
-
-        size = x.size()
-        null_input = torch.zeros(size[0], 1, size[2]).float().to(self.device)
+        null_size = list(x.size())
+        if len(null_size) == 4:   # channels given separately
+            null_size.pop(1)
+            x = x.view(null_size)
+        null_size[1] = 1
+        null_input = torch.zeros(*null_size).float().to(self.device)
         x = torch.cat((x, null_input), dim=1)
 
         # Compute input attention
         inputs, mask = self.input_attention_mask(x, hs)
-
         h_old = hs * 1.0
         if cs is not None:
             c_old = cs * 1.0

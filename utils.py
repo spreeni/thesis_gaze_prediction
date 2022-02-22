@@ -76,7 +76,7 @@ def plot_frames_with_labels(
         avg_gaze_locations: np.ndarray,
         avg_em_data: Optional[np.ndarray] = None,
         gaze_locations: Optional[List[List[Tuple]]] = None,
-        em_data: Optional[List] = None,
+        em_data: Optional[List[List]] = None,
         fps=30.,
         box_width=25,
         show_time=True,
@@ -121,14 +121,14 @@ def plot_frames_with_labels(
         ax.add_patch(avg_label_box)
 
         # Plot raw labels
-        raw_box_width = round(0.7 * box_width)
+        raw_box_width = round(0.5 * box_width)
         if gaze_locations is not None:
             assert num_frames == len(
                 gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
             for i, gaze in enumerate(gaze_locations[i_frame]):
                 color = EM_COLOR_MAP[em_data[i_frame][i]] if em_data is not None else 'r'
                 label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.5, edgecolor=color, facecolor='none')
+                                              linewidth=0.5, edgecolor=color, facecolor=color)#'none')
                 ax.add_patch(label_box)
 
         # Update title
@@ -139,7 +139,7 @@ def plot_frames_with_labels(
         if not save_to_directory:
             plt.pause(1/fps/display_speed)
         else:
-            plt.savefig(f'{save_to_directory}/{i_frame}.png')
+            plt.savefig(f'{save_to_directory}/{i_frame:03d}.png', dpi=300)
 
 
 def get_video_frames_from_file(video_path: str) -> Tuple[np.ndarray, float]:
