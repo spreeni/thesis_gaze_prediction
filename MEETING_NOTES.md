@@ -331,3 +331,36 @@
     - Nach Bugfix nochmal Hyperparameter-Suche durchführen, schauen ob wir realistischen Scanpath wenigstens auf einem Video hinkriegen (so dass Nico es nicht unterscheiden kann)
     - Im RIM-Paper wird für strukturierten Input Positional Encoding vorgeschlagen, möglicherweise in Patches anwenden
         - Allerdings aufwendig und Patches nicht flexibel (falls Objekte durch Patches gehen)
+- 02.03.22
+    - Fortschritts-Update:
+        - l1, smooth_l1 loss getestet um Mitt-Fokus entgegen zu wirken
+            - Trajektorie wirkt komisch für smooth_l1
+            - l1 scheint Objekte besser zu verfolgen, es ist aber noch viel Interpretation dabei
+        - EM-Phasen in prediction einbezogen
+            - EM cross-entropy loss 4x so groß wie gaze loss
+                - Regularization durch weighted cross-entropy
+            - Kurze Phasen werden gerne plattgemacht
+                - Hier Sakkaden extra gewichten in weighted cross-entropy
+                    - trotzdem sind Predictions hier sehr zufällig
+        - Direkt mit Features von vorletztem (6) und vor-vorletztem Layer (5) von MobileNet versucht
+            - Performt schlechter als FPN, FPN funktioniert also
+    - Gaze Regression hat generell Priorität über EM-Klassifikation, also möglicherweise Klassifikation auslassen
+    - Mit Gewichtung und EM-Phasen auf kleinem Clip erneut versuchen, ob Phasen + Gaze gut gelernt werden kann
+        - Gewichtung in cross-entropy an Anteile auf Videodaten anlegen
+    - breite_strasse ist problematisches Trainingsvideo, da zuviel passiert und immer etwas in der Mitte ist
+        - Besseres Trainingsvideo: Doves, Duck_boat (highest attention synchrony)
+            - Doves aber auch sehr Mitt-lastig
+    - Loss anpassen - während Sakkaden Trägheit bestrafen, sonst Ruckartigkeit bestrafen
+        - Regularization gegen zittern der Trajektorie
+            - L2-Norm ist ok dafür, bei Sakkaden einfach flippen
+    - Gradienten vergleichen für Regression/Klassifikation für Regularisierung von Klassifikation-Loss (Paper von Heiner)
+        - Möglicherweise Auxillary loss anwenden, zunächst aber einfach über GradNorm gehen
+    - Neues RIM-Paper schlägt Global Workspace vor
+        - möglicherweise implementieren (Heiner linkt Paper)
+    - Zu mehreren Observern übergehen
+        - Vielleicht widersprüchliche Observer verwenden, um zu überprüfen ob eine Trajektorie gewählt wird, oder aber nur die Mitte
+        - Auf vielen Videos trainieren, damit es eine Chance auf Generalization gibt
+    - Metriken auswerten über die Realität von ausgegebenen Trajektorien
+        - Nico gibt Paper weiter, welches den Normalized Scanpath als Metrik anbietet
+        - Durchschnitt über mehrere Samples wählen
+        - Wahrscheinlich Gaussian Kernel Smoothing verwenden
