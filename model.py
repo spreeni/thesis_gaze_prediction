@@ -53,6 +53,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.n_teacher_vals = n_teacher_vals
         self.channel_wise_attention = channel_wise_attention
         self.loss_fn = loss_fn
+        self.grad_norm_alpha = 1.
 
         self.mode = mode
 
@@ -108,6 +109,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
         self.multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(embed_dim, self.out_features, bias=self.multihead_attn.in_proj_bias is not None, **factory_kwargs)
+
+        # If em phases are predicted, use GradNorm for multi-task loss regularisation
+        self.loss_weights = torch.nn.Parameter(torch.ones(2, device=device).float()) if self.predict_em else None
 
         # Freeze parameters except for attention
         #for param in self.fpn.parameters():
@@ -217,17 +221,88 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
 
+    def backward(self, task_loss, optimizer, optimizer_idx):
+        if self.predict_em:
+            weighted_task_loss = torch.mul(self.loss_weights, task_loss)
+            loss = torch.sum(weighted_task_loss)
+        else:
+            loss = task_loss
+        loss.backward(retain_graph=True)
+
+        # GradNorm for multi-task loss
+        if self.loss_weights is not None:
+            # set the gradients of w_i(t) to zero because these gradients have to be updated using the GradNorm loss
+            self.loss_weights.grad.data = self.loss_weights.grad.data * 0.0
+
+            # get layer of shared weights
+            W = self.multihead_attn
+
+            # get the gradient norms for each of the tasks
+            # G^{(i)}_w(t) 
+            norms = []
+            for i in range(len(task_loss)):
+                # get the gradient of this task loss with respect to the shared parameters
+                gygw = torch.autograd.grad(task_loss[i], W.parameters(), retain_graph=True)
+                # compute the norm
+                norms.append(torch.norm(torch.mul(self.loss_weights[i], gygw[0])))
+            norms = torch.stack(norms)
+            #print('G_w(t): {}'.format(norms))
+
+            # compute the inverse training rate r_i(t) 
+            # \curl{L}_i 
+            if torch.cuda.is_available():
+                loss_ratio = task_loss.data.cpu().numpy() / self.initial_task_loss
+            else:
+                loss_ratio = task_loss.data.numpy() / self.initial_task_loss
+            # r_i(t)
+            inverse_train_rate = loss_ratio / np.mean(loss_ratio)
+            #print('r_i(t): {}'.format(inverse_train_rate))
+
+            # compute the mean norm \tilde{G}_w(t) 
+            if torch.cuda.is_available():
+                mean_norm = np.mean(norms.data.cpu().numpy())
+            else:
+                mean_norm = np.mean(norms.data.numpy())
+            #print('tilde G_w(t): {}'.format(mean_norm))
+
+            # compute the GradNorm loss 
+            # this term has to remain constant
+            constant_term = torch.tensor(mean_norm * (inverse_train_rate ** self.grad_norm_alpha), requires_grad=False, device=device)
+            #if torch.cuda.is_available():
+            #    constant_term = constant_term.cuda()
+            #print('Constant term: {}'.format(constant_term))
+            # this is the GradNorm loss itself
+            grad_norm_loss = torch.sum(torch.abs(norms - constant_term))
+            #print('GradNorm loss {}'.format(grad_norm_loss))
+
+            # compute the gradient for the weights
+            self.loss_weights.grad = torch.autograd.grad(grad_norm_loss, self.loss_weights)[0]
+            print('loss_weights grad {}'.format(self.loss_weights.grad))
+
+    def on_train_batch_end(self, outputs, batch, batch_idx, unused=0):
+        # Renormalize GradNorm loss weights after optimizer step
+        if self.predict_em:
+            print('loss_weights {}'.format(self.loss_weights))
+            normalize_coeff = 2 / torch.sum(self.loss_weights.data, dim=0)
+            self.loss_weights.data = self.loss_weights.data * normalize_coeff
+            print('loss_weights normalized {}'.format(self.loss_weights))
+
+    def on_before_optimizer_step(self, optimizer, optimizer_idx):
+        print(optimizer)
+        print(optimizer.param_groups[0]['params'][0])
+        print(optimizer.param_groups[0]['params'][0].grad)
+        print('loss_weights grad before step {}'.format(self.loss_weights.grad))
+
     def loss(self, y_hat, batch):
         not_noise = batch['em_data'][:, :, 0] == 0
         # loss_fn can be mse_loss/l1_loss/smooth_l1_loss
         loss_fn = getattr(F, self.loss_fn)
-        loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        loss_gaze = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         if self.predict_em:
-            loss_em = F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
-            self.log("gaze_loss", loss, prog_bar=True)
-            self.log("em_phase_loss", loss_em, prog_bar=True)
-            loss += loss_em
-        return loss
+            loss_em = F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise], weight=torch.Tensor([0.2, 0.2, 0.7, 0.2]).to(device=device))
+            return torch.stack([loss_gaze, loss_em])
+        else:
+            return loss_gaze
 
     def save_and_plot_param_changes(self, param_name, curr_param_val):
         # Calculates param change in current step and plots histogram, then saves current param values
@@ -301,24 +376,49 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if self.global_step % 10 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
             print("y:\n", batch['frame_labels'][0])
-        # Compute mean squared error loss, loss.backwards will be called behind the scenes
+
+        # Compute loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
-        # TODO: Implement specialized loss
-        loss = self.loss(y_hat, batch)
+        task_loss = self.loss(y_hat, batch)
+        if self.predict_em:
+            self.log("gaze_loss", task_loss[0], prog_bar=True)
+            self.log("em_phase_loss", task_loss[1], prog_bar=True)
+            weighted_task_loss = torch.mul(self.loss_weights.detach(), task_loss.detach())
+            self.log("gaze_loss_weighted", weighted_task_loss[0], prog_bar=True)
+            self.log("em_phase_loss_weighted", weighted_task_loss[1], prog_bar=True)
+            loss = torch.sum(weighted_task_loss)
+        else:
+            loss = task_loss
+
+        # Save initial task loss for GradNorm
+        if self.predict_em and self.global_step == 0:
+            # set L(0)
+            if torch.cuda.is_available():
+                initial_task_loss = task_loss.data.cpu()
+            else:
+                initial_task_loss = task_loss.data
+            self.initial_task_loss = initial_task_loss.numpy()
 
         # Log the train loss and batch size to Tensorboard
         self.log("batch_size", batch["video"].shape[0], prog_bar=True)
         self.log("train_loss", loss, batch_size=batch["video"].shape[0], prog_bar=True)
 
-        return loss
+        return task_loss
 
     def validation_step(self, batch, batch_idx):
         y_hat = self.forward(batch["video"])
-        loss = self.loss(y_hat, batch)
+
+        task_loss = self.loss(y_hat, batch)
+        if self.predict_em:
+            weighted_task_loss = torch.mul(self.loss_weights.detach(), task_loss.detach())
+            loss = torch.sum(weighted_task_loss)
+        else:
+            loss = task_loss
+
         self.log("batch_size_val", batch["video"].shape[0], prog_bar=True)
         self.log("val_loss", loss, batch_size=batch["video"].shape[0])
         self.log("hp_metric", loss)
-        return loss
+        return task_loss
 
     def configure_optimizers(self):
         """
