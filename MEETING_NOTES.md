@@ -364,3 +364,20 @@
         - Nico gibt Paper weiter, welches den Normalized Scanpath als Metrik anbietet
         - Durchschnitt über mehrere Samples wählen
         - Wahrscheinlich Gaussian Kernel Smoothing verwenden
+- 09.03.22
+    - Fortschritts-Update:
+        - Paper zu GradNorm, Normalized Scanpath und Shared Global Workspace gelesen
+        - GradNorm implementiert, allerdings verändern sich die Gewichte noch nicht trotz Gradient
+    - GradNorm
+        - versuche separaten Optimizer mit anderer learning rate, möglicherweise ist die learning rate einfach zu niedrig
+    - Normalized Scanpath
+        - Zu visual angle umrechnen
+            - Vllt einfach mit Pixel-Conversion, aber sonst mit bestehender Funktion
+        - NSS maps für jedes Video erstellen
+    - Regularisierung
+        - Nicht-Sakkaden L2-Loss, um “Zittern” zu bestrafen
+        - Sakkaden negativer L2-Loss, um Stillstand zu bestrafen
+        - Regularisierung durch Lambda-Term, der als Hyperparameter mit eingeht
+            - GradNorm hier nicht sinnvoll, da dieser Loss nicht gleich wichtig ist
+    - Möglicherweise für Conference Workshops anmelden (z.B. Juni)
+        - CVPR, ECCV
