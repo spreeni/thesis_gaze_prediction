@@ -42,7 +42,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
                  rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals,
-                 weight_init, mode, loss_fn, channel_wise_attention):
+                 weight_init, mode, loss_fn, lambda_reg, channel_wise_attention):
         super().__init__()
 
         self.rim_hidden_size = rim_hidden_size
@@ -53,6 +53,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.n_teacher_vals = n_teacher_vals
         self.channel_wise_attention = channel_wise_attention
         self.loss_fn = loss_fn
+        self.lambda_reg = lambda_reg
 
         self.mode = mode
 
@@ -217,11 +218,27 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
 
-    def loss(self, y_hat, batch):
+    def loss(self, y_hat, batch, train_step=False):
         not_noise = batch['em_data'][:, :, 0] == 0
-        # loss_fn can be mse_loss/l1_loss/smooth_l1_loss
+        saccades = batch['em_data'][:, :, 2] == 1
+        fix_sp = not_noise & ~saccades
+
+        # Gaze regression loss: loss_fn can be mse_loss/l1_loss/smooth_l1_loss
         loss_fn = getattr(F, self.loss_fn)
         loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+
+        # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
+        # First timepoint is ignored as it does not have a previous comparison
+        fix_sp[0, 0] = False
+        saccades[0, 0] = False
+        loss_reg_fix_sp = F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
+        loss_reg_sacc = -F.mse_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
+        loss_reg = self.lambda_reg * (loss_reg_fix_sp + loss_reg_sacc)
+        if train_step:
+            self.log("reg_loss", loss_reg, prog_bar=True)
+        loss += loss_reg
+
+        # Eye movement classification loss
         if self.predict_em:
             loss_em = F.cross_entropy(y_hat[:, :, 2:][not_noise], batch['em_data'][not_noise])
             self.log("gaze_loss", loss, prog_bar=True)
@@ -304,7 +321,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
         # TODO: Implement specialized loss
-        loss = self.loss(y_hat, batch)
+        loss = self.loss(y_hat, batch, train_step=True)
 
         # Log the train loss and batch size to Tensorboard
         self.log("batch_size", batch["video"].shape[0], prog_bar=True)
@@ -334,7 +351,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                channel_wise_attention=False, train_checkpoint=None):
+                lambda_reg=2., channel_wise_attention=False, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """
@@ -349,7 +366,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
                                                         rim_layers=rim_layers, attention_heads=attention_heads,
                                                         p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals, 
-                                                        weight_init=weight_init, mode=mode, loss_fn=loss_fn, channel_wise_attention=channel_wise_attention)
+                                                        weight_init=weight_init, mode=mode, loss_fn=loss_fn, lambda_reg=lambda_reg,
+                                                        channel_wise_attention=channel_wise_attention)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
@@ -387,5 +405,5 @@ if __name__ == '__main__':
     #_NUM_WORKERS = 12  # Number of parallel processes fetching data
     _OUT_CHANNELS = 8
 
-    train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=True,
+    train_model(_DATA_PATH_FRAMES, _CLIP_DURATION, _BATCH_SIZE, _NUM_WORKERS, _OUT_CHANNELS, only_tune=False, predict_em=False,
                  fpn_only_use_last_layer=True)#, train_checkpoint="lightning_logs/version_52/checkpoints/epoch=87-step=86.ckpt")
