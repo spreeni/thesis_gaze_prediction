@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 import os
 from pathlib import Path
 import numpy as np
+import numpy.lib.recfunctions as rfn
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
@@ -275,3 +276,50 @@ def videos_to_frames(video_dir: str, out_frames_dir: str):
         if video_path.is_file():
             if root_frames is not None:
                 store_frames_to_png(str(video_path), str(root_frames.joinpath(video_path.stem)))
+
+
+def px_to_visual_angle(x, y, width_px: int, height_px: int, width: int, height: int, dist: int, x_left_to_right: bool=True,
+                       y_top_to_bottom: bool=True):
+    """
+    Converts (x,y) pixel values to visual angle values.
+
+    A positive visual angle for the x-axis means the observer is looking to the right.
+    A positive visual angle for the y-axis means the observer is looking upwards.
+
+    (x, y, height_px, height_px) are pixel values
+    (width, height, dist) are length measures (e.g. mm, needs to be same for all 3 values)
+    """
+    x_dist = (x / width_px - 0.5) * width
+    y_dist = -(y / height_px - 0.5) * height
+
+    if not x_left_to_right: x_dist *= -1
+    if not y_top_to_bottom: y_dist *= -1
+
+    x_angle = np.arctan(x_dist / dist) * 180 / np.pi
+    y_angle = np.arctan(y_dist / dist) * 180 / np.pi
+
+    return x_angle, y_angle
+
+
+def px_to_visual_angle_in_structured_arr(arr, x_colname, y_colname, width_px, height_px, width, height, dist, x_left_to_right=True,
+                       y_top_to_bottom=True):
+    """
+    Converts (x,y) pixel values to visual angle values within a structured array (Is the case for GazeCom arff files).
+
+    A positive visual angle for the x-axis means the observer is looking to the right.
+    A positive visual angle for the y-axis means the observer is looking upwards.
+
+    (height_px, height_px) are pixel values
+    (width, height, dist) are length measures (e.g. mm, needs to be same for all 3 values
+    """
+    x_angle, y_angle = px_to_visual_angle(arr[x_colname], arr[y_colname], width_px, height_px, width, height, dist, x_left_to_right=x_left_to_right,
+                       y_top_to_bottom=y_top_to_bottom)
+
+    arr_unstruct = rfn.structured_to_unstructured(arr)
+
+    new_arr_unstruct = np.c_[arr_unstruct, x_angle]
+    new_arr_unstruct = np.c_[new_arr_unstruct, y_angle]
+
+    new_dt = np.dtype(arr.dtype.descr + [('x_angle', '<f8'), ('y_angle', '<f8')])
+
+    return np.array(rfn.unstructured_to_structured(new_arr_unstruct), dtype=new_dt)
