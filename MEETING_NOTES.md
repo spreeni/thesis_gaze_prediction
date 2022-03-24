@@ -370,7 +370,7 @@
         - GradNorm implementiert, allerdings verändern sich die Gewichte noch nicht trotz Gradient
     - GradNorm
         - versuche separaten Optimizer mit anderer learning rate, möglicherweise ist die learning rate einfach zu niedrig
-    - Normalized Scanpath
+    - Normalized Scanpath Saliency
         - Zu visual angle umrechnen
             - Vllt einfach mit Pixel-Conversion, aber sonst mit bestehender Funktion
         - NSS maps für jedes Video erstellen
@@ -381,3 +381,34 @@
             - GradNorm hier nicht sinnvoll, da dieser Loss nicht gleich wichtig ist
     - Möglicherweise für Conference Workshops anmelden (z.B. Juni)
         - CVPR, ECCV
+- 23.03.22
+    - Fortschritts-Update:
+        - Regularisierung eingebaut
+            - Für Fixation und Smooth Pursuit pos. L2-Loss zum Vorgänger
+            - Für Sakkade neg. L2-Loss zum Vorgänger
+            - Wirkt sehr fahrig für größere Regularisierung
+                - Negativer L2-Loss ermutigt möglicherweise größere Sprunghaftigkeit da es nicht genau erkennt wann etwas eine Sakkade ist und wann nicht
+        - Normalized Scanpath Saliency angefangen einzubauen
+            - Problematik eine variable Funktion mit Summen von Exp von Summen zu bauen, die ich pro Video speichern kann
+            - Gaze raw oder pro Frame nehmen?
+    - Regularisierung
+        - L1-loss für Sakkaden-Regularisierung verwenden um Explosion zu verhindern
+        - Effekt von Regularisierung mit Training auf mehreren Clips testen, ob der Mitt-Jitter unterbunden wird
+    - Normalized Scanpath Saliency
+        - 3D-Kernel Estimator verwenden, pro Video berechnen, picklen und speichern
+        - Ruhig ohne Zeitfenster und stattdessen über gesamtes Video betrachten
+    - Videos für Training und Validation überdenken
+        - Sollte recht eindeutige Saliency besitzen
+        - Möglichst nicht zu mitt-lastig
+    - Grobe Struktur Masterarbeit entwerfen
+        - Arbeit ist sehr technisch, aber noch ein bisschen mehr das große Ganze einbringen
+        - Verbindungen zur Psychologie bei technischen Methoden aufzeigen
+            - RIM-Spezialisierung, Attention
+    - Schauen ob es bei Psychologen ML-Ansatz gibt, und wie diese dabei vorgegangen sind
+    - Was sind die shortcomings von einem manuelleren Modell?
+        - Performance
+        - In Nico’s Erfahrung geht die Frage eher anders herum → warum nicht Deep Learning approach?
+        - RIM als Mittelding zwischen Interpretibility und Performance vorstellen
+            - Idealerweise RIM-Spezialisierung aufzeigen
+    - Heiner: Wichtig dass das Modell auf mehreren Observern funktioniert
+        - Bald übergehen, bevor wir bei einem Clip übermäßig tunen und etwas übersehen
