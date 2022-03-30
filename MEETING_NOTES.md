@@ -412,3 +412,29 @@
             - Idealerweise RIM-Spezialisierung aufzeigen
     - Heiner: Wichtig dass das Modell auf mehreren Observern funktioniert
         - Bald übergehen, bevor wir bei einem Clip übermäßig tunen und etwas übersehen
+- 30.03.22
+    - Fortschritts-Update:
+        - Auf golf als Hauptvideo umgeschwenkt
+            - Validierung auf doves, ducks_children, holsten_gate, puppies
+            - breite_strasse ist draußen, holsten_gate noch für Validierung von ganzem Video genutzt
+        - Normalized Scanpath Saliency mit KernelDensityEstimator implementiert
+            - Gibt allerdings noch keine sinnvollen Werte aus
+            - Normalization durch samplen von Werten sehr langsam durch Dimensionalität
+        - L1-Loss Sakkaden-Regularisierung implementiert
+        - 2 Hyperparameter für Fixation-und Sakkaden-Regularisierung
+            - Auf ganzem Video sind Ergebnisse allerdings nicht zufriedenstellend
+        - Beginn Arbeit auszuskizzieren
+    - Normalized Scanpath Probleme
+        - Nico schickt noch einmal Code, möglicherweise naivere Version einbauen
+    - Visual Angle doppelter Winkel, oder nur in eine Richtung?
+        - Nico hat nicht doppelten verwendet, aber möglicherweise nochmal überprüfen
+    - Zappeln der Gaze-Prediction bleibt trotz Regularisierung
+        - Vielleicht nur Position-Change predicten, nicht absoluten Wert
+    - Regularisierung durch Aktivierungsfunktion
+        - Kleine Changes nicht besonders beachten
+        - x³, Softplus, tanh oder absoluten Cutoff
+    - Übergehen zu mehreren Videos, dann zu mehreren Subjects
+        - Testen auf ungesehenen Videos
+        - Testen auf ungesehenen Observern
+            - Möglicherweise schwierig, da Observer höchst chaotisch sein können
+    - Abschnitte der Masterarbeit zum nächsten Mal planen
