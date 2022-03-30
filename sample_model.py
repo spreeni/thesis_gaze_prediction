@@ -41,6 +41,7 @@ dataset = gaze_labeled_video_dataset(
     video_file_suffix=_VIDEO_SUFFIX,
     decode_audio=False,
     decoder="pyav",
+    predict_change=CHANGE_DATA
 )
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
