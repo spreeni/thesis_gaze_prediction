@@ -58,7 +58,7 @@ VAL_TRANSFORM = Compose(
 )
 
 class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
-    def __init__(self, data_path, video_file_suffix="", clip_duration=2, batch_size=8, num_workers=8):
+    def __init__(self, data_path, video_file_suffix="", clip_duration=2, batch_size=8, num_workers=8, predict_change=False):
         """
         Initializes a GazeVideoDataModule which can be used in Pytorch Lightning
 
@@ -68,6 +68,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             clip_duration:      Duration of sampled clip for each video in seconds
             batch_size:         Batch size per model run
             num_workers:        Number of parallel processes fetching data
+            predict_change:     Flag if predicted data is relative change and not absolute positions
         """
         super().__init__()
 
@@ -78,6 +79,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
         self._VIDEO_SUFFIX = video_file_suffix
         self._CLIP_DURATION = clip_duration
         self._NUM_WORKERS = num_workers
+        self._PREDICT_CHANGE = predict_change
 
     def train_dataloader(self):
         """

@@ -379,7 +379,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         lambda_reg_fix=lambda_reg_fix, lambda_reg_sacc=lambda_reg_sacc,
                                                         channel_wise_attention=channel_wise_attention, predict_change=predict_change)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
-                                      clip_duration=clip_duration, num_workers=num_workers)
+                                      clip_duration=clip_duration, num_workers=num_workers, predict_change=predict_change)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
 
     summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))

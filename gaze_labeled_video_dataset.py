@@ -37,6 +37,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         transform: Optional[Callable[[dict], Any]] = None,
         decode_audio: bool = True,
         decoder: str = "pyav",
+        predict_change: bool = False,
     ) -> None:
         """
         Args:
@@ -60,12 +61,15 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
             decoder (str): Defines what type of decoder used to decode a video. Not used for
                 frame videos.
+
+            predict_change (bool): If True, predicted data is relative change and not absolute positions.
         """
         self._decode_audio = decode_audio
         self._transform = transform
         self._clip_sampler = clip_sampler
         self._video_and_label_paths = video_and_label_paths
         self._decoder = decoder
+        self._predict_change = predict_change
 
         self.em_encoder = OneHotEncoder()
         self.em_encoder.fit([[i] for i in range(4)])
@@ -249,8 +253,10 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 
                 # Normalize gaze location labels to range [-1, 1]
                 max_h, max_w = frames.shape[-2:]
-                #frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
-                frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.]))
+                if not self._predict_change:
+                    frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
+                else:
+                    frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.]))
 
                 # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
                 if self._loaded_em_data:
@@ -313,6 +319,7 @@ def gaze_labeled_video_dataset(
     video_file_suffix: str = "",
     decode_audio: bool = True,
     decoder: str = "pyav",
+    predict_change: bool = False,
 ) -> GazeLabeledVideoDataset:
     """
     A helper function to create ``LabeledVideoDataset`` object for Ucf101 and Kinetics datasets.
@@ -349,6 +356,8 @@ def gaze_labeled_video_dataset(
 
         decoder (str): Defines what type of decoder used to decode a video.
 
+        predict_change (bool): If True, predicted data is relative change and not absolute positions
+
     """
     videos_and_observers = VideosObserversPaths.from_path(data_path, video_file_suffix)
     #videos_and_observers.path_prefix = video_path_prefix
@@ -359,5 +368,6 @@ def gaze_labeled_video_dataset(
         transform,
         decode_audio=decode_audio,
         decoder=decoder,
+        predict_change=predict_change,
     )
     return dataset
