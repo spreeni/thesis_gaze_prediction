@@ -234,8 +234,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # First timepoint is ignored as it does not have a previous comparison
         fix_sp[0, 0] = False
         saccades[0, 0] = False
-        loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
-        loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
+        if not self.predict_change:
+            loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
+            loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
+        else:
+            loss_reg_fix_sp = self.lambda_reg_fix * torch.linalg.vector_norm(y_hat[:, :, :2][fix_sp], dim=-1).mean()
+            loss_reg_sacc = -self.lambda_reg_sacc * torch.linalg.vector_norm(y_hat[:, :, :2][saccades], dim=-1).mean()
         if train_step:
             self.log("reg_loss_fix", loss_reg_fix_sp, prog_bar=True)
             self.log("reg_loss_sacc", loss_reg_sacc, prog_bar=True)
