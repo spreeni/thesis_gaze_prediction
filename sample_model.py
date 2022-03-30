@@ -13,16 +13,17 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_224"
+_OUTPUT_DIR = r"data/sample_outputs/version_287"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
-_CHECKPOINT_PATH = r'data/lightning_logs/version_224/checkpoints/epoch=71-step=71.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_287/checkpoints/epoch=65-step=65.ckpt'
 
 _SCALE_UP = True
+CHANGE_DATA = True
 
 _CLIP_DURATION = 2
 _VIDEO_SUFFIX = ''
@@ -62,9 +63,12 @@ for i in range(0, samples):
     em_data_hat = None
     y_hat = y_hat.cpu().detach().numpy()
     em_data = sample['em_data'].cpu().detach().numpy()
-    y = y[:, None, :]#.tolist()
+    y = y.cpu().detach().numpy()
 
-    # TODO: This needs to be adjusted to one-hot encoding
+    if CHANGE_DATA:
+        y_hat = y_hat.cumsum(axis=0)
+        y = y.cumsum(axis=0)
+
     print("y_hat.shape", y_hat.shape)
     if y_hat.shape[1] > 2:
         em_data_hat = y_hat[:, 2:]
@@ -90,6 +94,7 @@ for i in range(0, samples):
     else:
         em_data = em_data[:, None]
 
+    y = y[:, None, :]  # for plotting
     if _SCALE_UP:
         utils.plot_frames_with_labels(frames, (y_hat + 1) * 112, em_data_hat, (y + 1) * 112, em_data, box_width=8, save_to_directory=save_dir)
     else:
