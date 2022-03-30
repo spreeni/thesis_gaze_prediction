@@ -249,7 +249,8 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 
                 # Normalize gaze location labels to range [-1, 1]
                 max_h, max_w = frames.shape[-2:]
-                frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
+                #frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
+                frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.]))
 
                 # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
                 if self._loaded_em_data:
