@@ -98,6 +98,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,
             decoder="pyav",
+            predict_change=self._PREDICT_CHANGE,
         )
         return torch.utils.data.DataLoader(
             train_dataset,
@@ -120,6 +121,7 @@ class GazeVideoDataModule(pytorch_lightning.LightningDataModule):
             video_file_suffix=self._VIDEO_SUFFIX,
             decode_audio=False,
             decoder="pyav",
+            predict_change=self._PREDICT_CHANGE,
         )
         return torch.utils.data.DataLoader(
             val_dataset,

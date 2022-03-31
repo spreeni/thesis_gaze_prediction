@@ -256,7 +256,9 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 if not self._predict_change:
                     frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
                 else:
-                    frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.]))
+                    frame_labels[1:, :] -= torch.roll(frame_labels, 1, dims=0)[1:, :]
+                    # TODO: Think of a better normalization here to avoid super small values
+                    frame_labels =  (frame_labels / torch.tensor([max_h, max_w]))
 
                 # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
                 if self._loaded_em_data:
