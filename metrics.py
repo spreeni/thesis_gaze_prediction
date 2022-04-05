@@ -1,7 +1,10 @@
 import os
+import sys
+
 import numpy as np
 import pickle
 from sklearn.neighbors import KernelDensity
+from scipy.ndimage import gaussian_filter
 from tqdm.auto import tqdm
 
 import utils
@@ -11,8 +14,10 @@ SIGMA_X = 1.2  # deg
 SIGMA_Y = 1.2  # deg
 SIGMA_T = 26.25  # ms
 
-WIDTH_PX    = 1280
-HEIGHT_PX   = 720
+#WIDTH_PX    = 1280
+WIDTH_PX    = 224
+#HEIGHT_PX   = 720
+HEIGHT_PX   = 224
 WIDTH_MM    = 400
 HEIGHT_MM   = 225
 DIST_MM     = 450
@@ -31,8 +36,10 @@ class NSSCalculator:
         self.vid_name = vid_name
         self.observer_data = dict()
         self.kde = None
+        self.gaussian_density = None
         self.score_mean = None
         self.score_std = None
+        self.n_frames = 0
 
         self.get_observer_data()
 
@@ -41,23 +48,29 @@ class NSSCalculator:
         Fetches gaze label data for all observers from the root directory
         """
         video_path = os.path.join(self.root, self.vid_name)
+        n_frames = 0
         for root, dirs, files in os.walk(video_path):
             for filename in files:
                 try:
                     observer = filename.split('_')[0]
-                    gaze, em_data = utils.read_label_file(os.path.join(video_path, filename), with_video_name=True)
-                    gaze = np.array(gaze).astype('int')
-                    em_data = np.array(em_data).astype('int')
-                    times = np.arange(len(gaze)) * T_FRAME
-
-                    gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
-
-                    self.observer_data[observer] = [times, gaze_deg, em_data]
                 except Exception:
                     print(f"Encountered unexpected filename '{filename}'. Label files should have format <observer>_<video>.txt")
-            break  # Only look at immediate directory content
+                    continue
+                gaze, em_data = utils.read_label_file(os.path.join(video_path, filename), with_video_name=False)
+                gaze = np.array(gaze).astype('int')
+                em_data = np.array(em_data).astype('int')
+                times = np.arange(len(gaze)) * T_FRAME
+                if len(gaze) > n_frames:
+                    n_frames = len(gaze)
 
-    def get_stacked_observer_data(self):
+                gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
+
+                self.observer_data[observer] = [times, gaze, gaze_deg, em_data]
+
+            break  # Only look at immediate directory content
+        self.n_frames = n_frames
+
+    def get_stacked_observer_data(self, gaze_in_px=False):
         """
         Stacks gaze data for all observers in one array.
 
@@ -66,10 +79,77 @@ class NSSCalculator:
         """
         assert len(self.observer_data) > 0, "No observer data loaded yet."
 
-        time_gaze = np.vstack([np.column_stack(self.observer_data[obs][:2]) for obs in self.observer_data])
+        if gaze_in_px:
+            time_gaze = np.vstack([np.column_stack(self.observer_data[obs][:2]) for obs in self.observer_data])
+        else:
+            time_gaze = np.vstack([np.column_stack([self.observer_data[obs][0], self.observer_data[obs][2]]) for obs in self.observer_data])
         em_phases = np.concatenate([self.observer_data[obs][-1] for obs in self.observer_data])
 
         return time_gaze, em_phases
+
+    def create_gaussian_density(self, export_path=None):
+        """
+        Calculate discrete gaussian density map for every pixel for every frame.
+
+        Args:
+            export_path:    In case the map shall be exported as a .npy file
+        """
+        assert len(self.observer_data) > 0, "No observer data loaded yet."
+
+        visual_angle_range_x = 2 * np.arctan(WIDTH_MM/2. / DIST_MM) * 180 / np.pi
+        visual_angle_range_y = 2 * np.arctan(HEIGHT_MM/2. / DIST_MM) * 180 / np.pi
+        sigmas = [SIGMA_T / T_FRAME, SIGMA_X * WIDTH_PX / visual_angle_range_x, SIGMA_Y * HEIGHT_PX / visual_angle_range_y]
+
+        point_map = np.zeros((self.n_frames, WIDTH_PX, HEIGHT_PX))
+        for obs in self.observer_data:
+            gaze_px = self.observer_data[obs][1]
+            for frame in range(len(gaze_px)):
+                x, y = gaze_px[frame].tolist()
+                x = WIDTH_PX if x > WIDTH_PX else (x if x > 0 else 1)
+                y = HEIGHT_PX if y > HEIGHT_PX else (y if y > 0 else 1)
+                point_map[frame, x - 1, y - 1] += 1
+
+        self.gaussian_density = gaussian_filter(point_map, sigmas)
+        self.gaussian_density = (self.gaussian_density - self.gaussian_density.mean()) / self.gaussian_density.std()
+
+        if export_path is not None:
+            np.save(export_path, self.gaussian_density)
+
+    def load_gaussian_density(self, filepath):
+        """
+        Load discrete gaussian density map from .npy file.
+
+        Args:
+            filepath:   Filepath of .npy file
+        """
+        self.gaussian_density = np.load(filepath)
+
+    def score_gaussian_density(self, gaze, frame_ids=None):
+        """
+        Calculate score for a scanpath on gaussian density map. Scores >0 show higher correlation, scores <0 show randomness.
+
+        Args:
+            gaze:       Gaze
+            frame_ids:
+
+        Returns:
+
+        """
+        assert self.gaussian_density is not None, "No observer data loaded yet."
+
+        n_samples = len(gaze)
+        if frame_ids is None:
+            frame_ids = np.arange(n_samples)
+
+        score = 0.
+        gaze -= 1
+        gaze[gaze < 0] = 0
+        gaze[gaze[:, 0] > WIDTH_PX - 1, 0] = WIDTH_PX - 1
+        gaze[gaze[:, 1] > HEIGHT_PX - 1, 1] = HEIGHT_PX - 1
+        for i in range(len(gaze)):
+            score += self.gaussian_density[frame_ids[i], gaze[i, 0], gaze[i, 1]]
+
+        return score / n_samples
 
     def fit_kde(self):
         """
@@ -179,22 +259,35 @@ def train_kde_on_all_vids(rootdir):
         break  # Only look at immediate directory content
 
 
-root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
-#train_kde_on_all_vids(root)
+def train_gaussian_density_on_all_vids(rootdir):
+    for root, dirs, files in os.walk(rootdir):
+        for video_name in tqdm(dirs):
+            nss = NSSCalculator(video_name, rootdir)
+            nss.create_gaussian_density(export_path=os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
+        break  # Only look at immediate directory content
 
+
+root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
+root = 'data/GazeCom/movies_m2t_224x224/label_data'
+#train_kde_on_all_vids(root)
+#train_gaussian_density_on_all_vids(root)
 
 # Test vs random data
-#nss = NSSCalculator('doves', root)
+nss = NSSCalculator('doves', root)
+#nss.create_gaussian_density()
 #nss.fit_kde()
-nss = NSSCalculator.load_from_file('metrics/kernel_density_estimator/doves.pickle')
+#nss = NSSCalculator.load_from_file('metrics/kernel_density_estimator/doves.pickle')
+nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', 'doves.npy'))
 
-gaze, em_data = utils.read_label_file(os.path.join(root, 'doves', 'AAW_doves.txt'), with_video_name=True)
+gaze, em_data = utils.read_label_file(os.path.join(root, 'doves', 'AAW_doves.txt'), with_video_name=False)
 gaze = np.array(gaze).astype('int')
 em_data = np.array(em_data).astype('int')
 times = np.arange(len(gaze)) * T_FRAME
 
 gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
-g_rand = np.random.randn(*gaze_deg.shape)
+g_rand = np.random.randint(0, 224, gaze.shape)
 t_rand = np.random.randn(*times.shape)
-print("score:", nss.score_kde(gaze_deg, times))
-print("score random:", nss.score_kde(g_rand, t_rand))
+#print("score:", nss.score_kde(gaze_deg, times))
+#print("score random:", nss.score_kde(g_rand, t_rand))
+print("score:", nss.score_gaussian_density(gaze))
+print("score random:", nss.score_gaussian_density(g_rand))
