@@ -1,5 +1,6 @@
 import torch
 import os
+import sys
 import subprocess
 import shutil
 import numpy as np
@@ -13,14 +14,14 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_287"
+_OUTPUT_DIR = r"data/sample_outputs/version_301"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
-_CHECKPOINT_PATH = r'data/lightning_logs/version_287/checkpoints/epoch=65-step=65.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_301/checkpoints/epoch=41-step=41.ckpt'
 
 _SCALE_UP = True
 CHANGE_DATA = True
@@ -67,8 +68,8 @@ for i in range(0, samples):
     y = y.cpu().detach().numpy()
 
     if CHANGE_DATA:
-        y_hat = y_hat.cumsum(axis=0)
-        y = y.cumsum(axis=0)
+        y_hat = np.tanh(y_hat.cumsum(axis=0))
+        y = np.tanh(y.cumsum(axis=0))
 
     print("y_hat.shape", y_hat.shape)
     if y_hat.shape[1] > 2:
