@@ -215,7 +215,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             else:
                 x, h, c = self.rim(x, h=h, c=c)
             output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(output)
+            outputs.append(output.pow(3))
         out = torch.cat(outputs, dim = 0)
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
@@ -359,7 +359,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
                 attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                lambda_reg_fix=6., lambda_reg_sacc=0.1, channel_wise_attention=False, predict_change=True,
+                lambda_reg_fix=0., lambda_reg_sacc=0., channel_wise_attention=False, predict_change=True,
                 train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
