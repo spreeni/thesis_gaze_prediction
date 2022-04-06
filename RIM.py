@@ -188,10 +188,10 @@ class RIMCell(nn.Module):
         # For binary choice between input and null softmax suffices.
         # For multiple channels use sigmoid if multiple channels shall be mixed or use Softmax with multihead attention.
         if attention_scores.shape[-1] == 2:
-            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+            attention_probs = nn.Softmax(dim=-1)(self.input_dropout(attention_scores))
         else:
             #attention_probs = self.input_dropout(nn.Sigmoid()(attention_scores))
-            attention_probs = self.input_dropout(nn.Softmax(dim=-1)(attention_scores))
+            attention_probs = nn.Softmax(dim=-1)(self.input_dropout(attention_scores))
 
         # Either prioritize the signal that receives the highest accumulated attention probability 
         # or where the null-input receives the lowest attention probability
@@ -228,13 +228,13 @@ class RIMCell(nn.Module):
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.comm_key_size)
 
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = nn.Softmax(dim=-1)(self.comm_dropout(attention_scores))
 
         mask = [mask for _ in range(attention_probs.size(1))]
         mask = torch.stack(mask, dim=1)
 
         attention_probs = attention_probs * mask.unsqueeze(3)
-        attention_probs = self.comm_dropout(attention_probs)
+        #attention_probs = self.comm_dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.num_comm_heads * self.comm_value_size,)
