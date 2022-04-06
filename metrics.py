@@ -30,10 +30,10 @@ class NSSCalculator:
     SIGMA_Y = 1.2  # deg
     SIGMA_T = 26.25  # ms
 
-    def __init__(self, vid_name, root):
+    def __init__(self):
         self.coeff = SIGMA_X**2 + SIGMA_Y**2 + SIGMA_T**2
-        self.root = root
-        self.vid_name = vid_name
+        self.root = None
+        self.vid_name = None
         self.observer_data = dict()
         self.kde = None
         self.gaussian_density = None
@@ -41,12 +41,13 @@ class NSSCalculator:
         self.score_std = None
         self.n_frames = 0
 
-        self.get_observer_data()
-
-    def get_observer_data(self):
+    def get_observer_data(self, vid_name, root):
         """
         Fetches gaze label data for all observers from the root directory
         """
+        self.root = root
+        self.vid_name = vid_name
+
         video_path = os.path.join(self.root, self.vid_name)
         n_frames = 0
         for root, dirs, files in os.walk(video_path):
@@ -129,11 +130,11 @@ class NSSCalculator:
         Calculate score for a scanpath on gaussian density map. Scores >0 show higher correlation, scores <0 show randomness.
 
         Args:
-            gaze:       Gaze
-            frame_ids:
+            gaze:       Gaze as pixel values
+            frame_ids:  Frames that the gaze corresponds to. If omitted will assume that frame are from start of the video.
 
         Returns:
-
+            The normalized scanpath saliency on the current video.
         """
         assert self.gaussian_density is not None, "No observer data loaded yet."
 
@@ -253,7 +254,8 @@ class NSSCalculator:
 def train_kde_on_all_vids(rootdir):
     for root, dirs, files in os.walk(rootdir):
         for video_name in tqdm(dirs):
-            nss = NSSCalculator(video_name, rootdir)
+            nss = NSSCalculator()
+            nss.get_observer_data(video_name, rootdir)
             nss.fit_kde()
             nss.save_to_file(os.path.join('metrics', 'kernel_density_estimator', f'{video_name}.pickle'))
         break  # Only look at immediate directory content
@@ -262,9 +264,16 @@ def train_kde_on_all_vids(rootdir):
 def train_gaussian_density_on_all_vids(rootdir):
     for root, dirs, files in os.walk(rootdir):
         for video_name in tqdm(dirs):
-            nss = NSSCalculator(video_name, rootdir)
+            nss = NSSCalculator()
+            nss.get_observer_data(video_name, rootdir)
             nss.create_gaussian_density(export_path=os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
         break  # Only look at immediate directory content
+
+
+def score_gaussian_density(video, gaze, frame_ids=None):
+    nss = NSSCalculator()
+    nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video}.npy'))
+    return nss.score_gaussian_density(gaze, frame_ids)
 
 
 root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
@@ -273,10 +282,7 @@ root = 'data/GazeCom/movies_m2t_224x224/label_data'
 #train_gaussian_density_on_all_vids(root)
 
 # Test vs random data
-nss = NSSCalculator('doves', root)
-#nss.create_gaussian_density()
-#nss.fit_kde()
-#nss = NSSCalculator.load_from_file('metrics/kernel_density_estimator/doves.pickle')
+nss = NSSCalculator()
 nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', 'doves.npy'))
 
 gaze, em_data = utils.read_label_file(os.path.join(root, 'doves', 'AAW_doves.txt'), with_video_name=False)
@@ -286,8 +292,10 @@ times = np.arange(len(gaze)) * T_FRAME
 
 gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
 g_rand = np.random.randint(0, 224, gaze.shape)
+g_mid = np.ones(gaze.shape, dtype=np.int32) * 112
 t_rand = np.random.randn(*times.shape)
 #print("score:", nss.score_kde(gaze_deg, times))
 #print("score random:", nss.score_kde(g_rand, t_rand))
 print("score:", nss.score_gaussian_density(gaze))
 print("score random:", nss.score_gaussian_density(g_rand))
+print("score mid:", nss.score_gaussian_density(g_mid))
