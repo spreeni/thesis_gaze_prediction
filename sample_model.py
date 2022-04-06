@@ -7,20 +7,21 @@ from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
 
 import utils
+from metrics import score_gaussian_density
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 from gaze_video_data_module import VAL_TRANSFORM
 from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_224"
+_OUTPUT_DIR = r"data/sample_outputs/version_305"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
-_CHECKPOINT_PATH = r'data/lightning_logs/version_224/checkpoints/epoch=71-step=71.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_305/checkpoints/epoch=30-step=1868.ckpt'
 
 _SCALE_UP = True
 
@@ -51,6 +52,10 @@ samples = 4
 for i in range(0, samples):
     sample = next(dataset)
 
+    video_name = sample['video_name']
+    observer = sample['observer']
+    print(video_name, observer)
+
     y_hat = model(sample['video'][None, :].to(device=device))[0]
     y = sample['frame_labels']
 
@@ -62,24 +67,15 @@ for i in range(0, samples):
     em_data_hat = None
     y_hat = y_hat.cpu().detach().numpy()
     em_data = sample['em_data'].cpu().detach().numpy()
-    y = y[:, None, :]#.tolist()
+    frame_indices = sample['frame_indices']
+    y = y[:, None, :].cpu().detach().numpy().astype(int)
+    print(f"Frames {frame_indices[0]}-{frame_indices[-1]}")
 
-    # TODO: This needs to be adjusted to one-hot encoding
     print("y_hat.shape", y_hat.shape)
     if y_hat.shape[1] > 2:
         em_data_hat = y_hat[:, 2:]
         y_hat = y_hat[:, :2]
         em_data_hat = em_encoder.inverse_transform(em_data_hat).reshape((-1))
-
-    print("y_hat")
-    print(y_hat[:5])
-    print("y")
-    print(y[:5])
-    if em_data_hat is not None:
-        print("em_data_hat")
-        print(em_data_hat[:20])
-        print("em_data")
-        print(em_data[:20])
 
     save_dir = None if _OUTPUT_DIR is None else f'{_OUTPUT_DIR}/{i}'
     if save_dir is not None:
@@ -91,11 +87,29 @@ for i in range(0, samples):
         em_data = em_data[:, None]
 
     if _SCALE_UP:
-        utils.plot_frames_with_labels(frames, (y_hat + 1) * 112, em_data_hat, (y + 1) * 112, em_data, box_width=8, save_to_directory=save_dir)
-    else:
-        utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8, save_to_directory=save_dir)
+        y_hat = (y_hat + 1) * 112
+        y = (y + 1) * 112
+
+    print("y_hat")
+    print(y_hat[:5])
+    print("y")
+    print(y[:5])
+    if em_data_hat is not None:
+        print("em_data_hat")
+        print(em_data_hat[:20])
+        print("em_data")
+        print(em_data[:20])
+
+    nss_orig = score_gaussian_density(video_name, y[0, :, :], frame_ids=frame_indices)
+    nss = score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices)
+    print("NSS original clip:", nss_orig)
+    print("NSS prediction:", nss, "\n")
+
+    utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8, save_to_directory=save_dir)
     subprocess.call(f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate 10 -start_number 0 -i {i}/%03d.png -pix_fmt yuv420p {_MODE}_{i}.mp4", cwd=_OUTPUT_DIR, shell=True)
     shutil.rmtree(save_dir)
+    with open(os.path.join(_OUTPUT_DIR, "metadata.txt", "a")) as f:
+        f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}\n")
     #if _PLOT_RESULTS:
     #    utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8)
     #else:

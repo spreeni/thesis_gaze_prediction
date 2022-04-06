@@ -275,27 +275,27 @@ def score_gaussian_density(video, gaze, frame_ids=None):
     nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video}.npy'))
     return nss.score_gaussian_density(gaze, frame_ids)
 
+if __name__ == "__main__":
+    root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
+    root = 'data/GazeCom/movies_m2t_224x224/label_data'
+    #train_kde_on_all_vids(root)
+    #train_gaussian_density_on_all_vids(root)
 
-root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
-root = 'data/GazeCom/movies_m2t_224x224/label_data'
-#train_kde_on_all_vids(root)
-#train_gaussian_density_on_all_vids(root)
+    # Test vs random data
+    nss = NSSCalculator()
+    nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', 'doves.npy'))
 
-# Test vs random data
-nss = NSSCalculator()
-nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', 'doves.npy'))
+    gaze, em_data = utils.read_label_file(os.path.join(root, 'doves', 'AAW_doves.txt'), with_video_name=False)
+    gaze = np.array(gaze).astype('int')
+    em_data = np.array(em_data).astype('int')
+    times = np.arange(len(gaze)) * T_FRAME
 
-gaze, em_data = utils.read_label_file(os.path.join(root, 'doves', 'AAW_doves.txt'), with_video_name=False)
-gaze = np.array(gaze).astype('int')
-em_data = np.array(em_data).astype('int')
-times = np.arange(len(gaze)) * T_FRAME
-
-gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
-g_rand = np.random.randint(0, 224, gaze.shape)
-g_mid = np.ones(gaze.shape, dtype=np.int32) * 112
-t_rand = np.random.randn(*times.shape)
-#print("score:", nss.score_kde(gaze_deg, times))
-#print("score random:", nss.score_kde(g_rand, t_rand))
-print("score:", nss.score_gaussian_density(gaze))
-print("score random:", nss.score_gaussian_density(g_rand))
-print("score mid:", nss.score_gaussian_density(g_mid))
+    gaze_deg = np.array(utils.px_to_visual_angle(gaze[:, 0], gaze[:, 1], WIDTH_PX, HEIGHT_PX, WIDTH_MM, HEIGHT_MM, DIST_MM)).T
+    g_rand = np.random.randint(0, 224, gaze.shape)
+    g_mid = np.ones(gaze.shape, dtype=np.int32) * 112
+    t_rand = np.random.randn(*times.shape)
+    #print("score:", nss.score_kde(gaze_deg, times))
+    #print("score random:", nss.score_kde(g_rand, t_rand))
+    print("score:", nss.score_gaussian_density(gaze))
+    print("score random:", nss.score_gaussian_density(g_rand))
+    print("score mid:", nss.score_gaussian_density(g_mid))

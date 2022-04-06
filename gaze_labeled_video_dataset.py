@@ -263,6 +263,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                     "aug_index": aug_index,
                     "observer": observer,
                     "frame_labels": frame_labels,
+                    "frame_indices": frame_indices,
                     **({"em_data": em_data} if em_data is not None else {}),
                     **({"audio": audio_samples} if audio_samples is not None else {}),
                 }
