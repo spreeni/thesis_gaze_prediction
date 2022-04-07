@@ -213,7 +213,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             else:
                 x, h, c = self.rim(x, h=h, c=c)
             output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(output)
+            outputs.append(torch.tanh(output))
         out = torch.cat(outputs, dim = 0)
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
