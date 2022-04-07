@@ -111,7 +111,7 @@ for i in range(0, samples):
     utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8, save_to_directory=save_dir)
     subprocess.call(f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate 10 -start_number 0 -i {i}/%03d.png -pix_fmt yuv420p {_MODE}_{i}.mp4", cwd=_OUTPUT_DIR, shell=True)
     shutil.rmtree(save_dir)
-    with open(os.path.join(_OUTPUT_DIR, "metadata.txt", "a")) as f:
+    with open(os.path.join(_OUTPUT_DIR, "metadata.txt"), "a") as f:
         f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}, nss (original, prediction, middle): ({nss_orig:.2f}, {nss:.2f}, {nss_mid:.2f})\n")
     #if _PLOT_RESULTS:
     #    utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8)
