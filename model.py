@@ -215,7 +215,11 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             else:
                 x, h, c = self.rim(x, h=h, c=c)
             output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(output.pow(3))
+            if self.predict_change:
+                outputs.append(output.pow(3))
+            else:
+                outputs.append(torch.tanh(output))
+
         out = torch.cat(outputs, dim = 0)
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
@@ -234,6 +238,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # First timepoint is ignored as it does not have a previous comparison
         fix_sp[0, 0] = False
         saccades[0, 0] = False
+
         if not self.predict_change:
             loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
             loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
@@ -243,8 +248,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if train_step:
             self.log("reg_loss_fix", loss_reg_fix_sp, prog_bar=True)
             self.log("reg_loss_sacc", loss_reg_sacc, prog_bar=True)
-        loss_reg = loss_reg_fix_sp + loss_reg_sacc
-        loss += loss_reg
+        loss += loss_reg_fix_sp + loss_reg_sacc
 
         # Eye movement classification loss
         if self.predict_em:

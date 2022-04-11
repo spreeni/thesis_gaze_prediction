@@ -253,6 +253,8 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 
                 # Normalize gaze location labels to range [-1, 1]
                 max_h, max_w = frames.shape[-2:]
+                frame_labels[:, 0] = torch.clamp(frame_labels[:, 0], min=0, max=max_h - 1)
+                frame_labels[:, 1] = torch.clamp(frame_labels[:, 1], min=0, max=max_w - 1)
                 if not self._predict_change:
                     frame_labels = (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
                 else:
@@ -275,6 +277,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                     "aug_index": aug_index,
                     "observer": observer,
                     "frame_labels": frame_labels,
+                    "frame_indices": frame_indices,
                     **({"em_data": em_data} if em_data is not None else {}),
                     **({"audio": audio_samples} if audio_samples is not None else {}),
                 }

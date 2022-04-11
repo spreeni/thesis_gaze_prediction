@@ -438,3 +438,31 @@
         - Testen auf ungesehenen Observern
             - Möglicherweise schwierig, da Observer höchst chaotisch sein können
     - Abschnitte der Masterarbeit zum nächsten Mal planen
+- 06.04.22
+    - Fortschritts-Update:
+        - Trainieren auf Gaze change anstatt absoluten Werten
+            - atanh → Diff (rückwärts cumsum → tanh) eingebaut um im Wertebereich zu bleiben
+                - Mit Aktivierungsfunktion x³ und ohne auf einem Clip trainiert
+            - Bisher größtenteils Noise, mit x³ nur sehr kleine Änderungen
+        - Nicos Ansatz für NSS eingebaut
+            - Scores für jeden Observer+Video genommen
+            - Muss nun noch ins Samplen eingebaut werden
+        - Einmal auf allen Videos trainiert - ca. 17min pro Epoche
+            - Predictions sind wieder sehr mittig
+    - Normalized Scanpath Saliency
+        - Random baseline nicht sinnig für NSS
+            - Baseline in der Mitte besserer Vergleichswert
+        - Möglicherweise interessant über Window-Funktion Korrelation in einzelnen Clips zu betrachten
+    - Predictions auf allen Videos sehr mittig
+        - RIM größer machen für alle Videos
+        - Dropout erhöhen, Unterschiede testen
+            - Dropout im Test anlassen (Batchnorm eval)
+    - Dropout testen, gleiche Videos erneut testen ob sie verschiedenes generieren
+    - Dropout wird nach Softmax angewandt, wodurch Normalisierung nicht mehr gegeben ist
+        - Einmal umdrehen, Effekt testen
+    - Verteilung als möglicher Model-Output
+        - Mixture of Gaussians
+        - loss über Log-Likelihood bestimmen
+    - Flowchart für Modell anfertigen
+        - Mit Flags, Hyperparametern
+        - Einmal alle Baustellen visualisieren
