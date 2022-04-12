@@ -15,29 +15,29 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_301"
+_OUTPUT_DIR = r"data/sample_outputs/version_332"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
-_CHECKPOINT_PATH = r'data/lightning_logs/version_301/checkpoints/epoch=41-step=41.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_332/checkpoints/epoch=18-step=949.ckpt'
 
 _SCALE_UP = True
 CHANGE_DATA = True
 
-_CLIP_DURATION = 2
+_CLIP_DURATION = 5
 _VIDEO_SUFFIX = ''
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 dataset = gaze_labeled_video_dataset(
     data_path=_DATA_PATH,
-    clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
-    video_sampler=torch.utils.data.SequentialSampler,
-    #clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
-    #video_sampler=torch.utils.data.RandomSampler,
+    #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
+    #video_sampler=torch.utils.data.SequentialSampler,
+    clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
+    video_sampler=torch.utils.data.RandomSampler,
     transform=VAL_TRANSFORM,
     #transform=None,
     video_file_suffix=_VIDEO_SUFFIX,
@@ -107,7 +107,7 @@ for i in range(0, samples):
         print("em_data")
         print(em_data[:20])
 
-    nss_orig = score_gaussian_density(video_name, y[0, :, :].astype(int), frame_ids=frame_indices)
+    nss_orig = score_gaussian_density(video_name, y[:, 0, :].astype(int), frame_ids=frame_indices)
     nss = score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices)
     gaze_mid = np.ones(y_hat.shape, dtype=np.int32) * 112
     nss_mid = score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
