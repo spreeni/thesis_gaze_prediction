@@ -71,7 +71,7 @@ for i in range(0, samples):
     y_hat = y_hat.cpu().detach().numpy()
     em_data = sample['em_data'].cpu().detach().numpy()
     frame_indices = sample['frame_indices']
-    y = y[:, None, :].cpu().detach().numpy().astype(int)
+    y = y[:, None, :].cpu().detach().numpy()
     print(f"Frames {frame_indices[0]}-{frame_indices[-1]}")
 
     if CHANGE_DATA:
@@ -107,7 +107,7 @@ for i in range(0, samples):
         print("em_data")
         print(em_data[:20])
 
-    nss_orig = score_gaussian_density(video_name, y[0, :, :], frame_ids=frame_indices)
+    nss_orig = score_gaussian_density(video_name, y[0, :, :].astype(int), frame_ids=frame_indices)
     nss = score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices)
     gaze_mid = np.ones(y_hat.shape, dtype=np.int32) * 112
     nss_mid = score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
