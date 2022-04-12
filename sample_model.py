@@ -100,7 +100,7 @@ for i in range(0, samples):
         print("em_data")
         print(em_data[:20])
 
-    nss_orig = score_gaussian_density(video_name, y[, 0, :].astype(int), frame_ids=frame_indices)
+    nss_orig = score_gaussian_density(video_name, y[:, 0, :].astype(int), frame_ids=frame_indices)
     nss = score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices)
     gaze_mid = np.ones(y_hat.shape, dtype=np.int32) * 112
     nss_mid = score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
