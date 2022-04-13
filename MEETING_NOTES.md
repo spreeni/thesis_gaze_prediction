@@ -466,3 +466,34 @@
     - Flowchart für Modell anfertigen
         - Mit Flags, Hyperparametern
         - Einmal alle Baustellen visualisieren
+- 13.04.22
+    - Fortschritts-Update:
+        - NSS in model sampling eingebaut
+            - mit Vergleich zu NSS von originalem Clip und Mitt-NSS
+            - NSS für loss benutzen? Hat allerdings Target-Information, müsste in torch implementiert werden und ist computationally expensive
+        - Dropout getestet
+            - generell aktiv, jedes Mal andere Scanpaths für gleichen Input
+        - Auf allen Videos + Observers trainiert mit gaze changes und Aktivierungsfunktion x³
+            - Resultiert in mittigem Noise
+            - Ich glaube gaze change ist im Moment eine Sackgasse
+        - Thesis-Template weiter gestaltet/strukturiert
+        - Paper gelesen für grundsätzlichere Ansätze
+            - NSS als Loss?
+            - Fixation-Klassifikation über Pixel?
+            - Anderen Backbone für Feature Extractor?
+    - Möglicherweise Mixture of Gaussians als Output (äquivalent zu NSS als Loss)
+        - Nico: Mixture of Gaussians erstmal nicht Priorität
+        - Gaussian kann problematisch an Bildrändern sein
+    - Alle videos + 1 observer einmal ausprobieren
+        - Wenn es nicht funktioniert → Feature Extraction nicht gut genug
+    - längere Clip-sizes ausprobieren
+        - einmal auf ganzen 20s videos trainieren
+    - Mehrere predictions auf gleichem Input vergleichen
+        - NSS-average berechnen
+        - Alle plotten / Scanpaths vergleichen
+        - Gaussian smoothing als saliency map
+            - im Vergleich mit NSS-Map plotten
+    - Nächste Woche ein paar Plots zeigen
+    - Scanpath-Output vergleichen zwischen trainiert/untrainiert
+    - Möglicherweise Vortrag über den aktuellen Stand für Prof. Obermayer vorbereiten
+    - Nico: Wichtig immer wieder Ergebnisse/Probleme zu sammeln
