@@ -88,7 +88,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
                 bidirectional=False,
-                num_input_heads=2
+                num_input_heads=2,
+                input_dropout=0.2,
+                comm_output=0.2
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
@@ -398,6 +400,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
 if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/all_videos_single_observer'
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'

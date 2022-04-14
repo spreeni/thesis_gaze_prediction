@@ -18,24 +18,25 @@ _OUTPUT_DIR = r"data/sample_outputs/version_305"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
+_#DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 
 _CHECKPOINT_PATH = r'data/lightning_logs/version_305/checkpoints/epoch=30-step=1868.ckpt'
 
 _SCALE_UP = True
 
-_CLIP_DURATION = 2
+_CLIP_DURATION = 5
 _VIDEO_SUFFIX = ''
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 dataset = gaze_labeled_video_dataset(
     data_path=_DATA_PATH,
-    clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
-    video_sampler=torch.utils.data.SequentialSampler,
-    #clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
-    #video_sampler=torch.utils.data.RandomSampler,
+    #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
+    #video_sampler=torch.utils.data.SequentialSampler,
+    clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
+    video_sampler=torch.utils.data.RandomSampler,
     transform=VAL_TRANSFORM,
     #transform=None,
     video_file_suffix=_VIDEO_SUFFIX,
