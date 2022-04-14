@@ -16,6 +16,7 @@ from feature_extraction import FeatureExtractor, FPN
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+LOG_DEBUG_INFO = False
 
 def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
     """
@@ -90,7 +91,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 bidirectional=False,
                 num_input_heads=2,
                 input_dropout=0.2,
-                comm_output=0.2
+                comm_dropout=0.2
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
@@ -183,7 +184,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
         xs = list(torch.split(x, 1, dim = 0))
         outputs = []
-        
+
         if self.mode == 'LSTM':
             h = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
             c = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
@@ -282,7 +283,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def on_after_backward(self):
         # Log histograms of model parameters, gradients and parameter changes
         for name, param in self.named_parameters():
-            if not name.startswith('backbone.'):
+            if not name.startswith('backbone.') and LOG_DEBUG_INFO:
                 # Log param values
                 self.trainer.logger.experiment.add_histogram(name, param, self.global_step)
                 self.save_sample_param_values(name, param)
@@ -304,16 +305,17 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                     print(f"{name}_epoch_{self.global_step}", param.shape)
         
         # Very experimental as a time point
-        if self.global_step == 45:
+        if self.global_step == 45 and LOG_DEBUG_INFO:
             print("plotting param values!")
             self.plot_sample_param_values()
 
-        # Log features every 5th epoch
         if self.predict_em:
             y = torch.concat((batch['frame_labels'], batch['em_data']), dim=-1)
         else:
             y = batch['frame_labels']
-        if self.global_step % 5 == 0:
+
+        # Log features every 5th epoch
+        if self.global_step % 5 == 0 and LOG_DEBUG_INFO:
             y_hat = self.forward(batch["video"], y=y, log_features=True)
         else:
             y_hat = self.forward(batch["video"], y=y)
