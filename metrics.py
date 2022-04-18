@@ -2,6 +2,8 @@ import os
 import sys
 
 import numpy as np
+from matplotlib import animation
+from matplotlib import pyplot as plt
 import pickle
 from sklearn.neighbors import KernelDensity
 from scipy.ndimage import gaussian_filter
@@ -134,7 +136,7 @@ class NSSCalculator:
             frame_ids:  Frames that the gaze corresponds to. If omitted will assume that frame are from start of the video.
 
         Returns:
-            The normalized scanpath saliency on the current video.
+            The normalized scanpath saliency on the current clip.
         """
         assert self.gaussian_density is not None, "No observer data loaded yet."
 
@@ -151,6 +153,34 @@ class NSSCalculator:
             score += self.gaussian_density[frame_ids[i], gaze[i, 0], gaze[i, 1]]
 
         return score / n_samples
+
+    def save_animated_gaussian_density(self, outpath, frame_start, frame_end):
+        assert self.gaussian_density is not None, "No observer data loaded yet."
+        assert frame_end > frame_start, "End frame index needs to be larger then start frame index"
+        assert (frame_end >= 0) and (frame_end <= self.gaussian_density.shape[0]), "End frame out of bounds"
+        assert (frame_start >= 0) and (frame_start <= self.gaussian_density.shape[0]), "Start frame out of bounds"
+
+        fig = plt.figure(figsize=(10, 10))
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        im = ax.imshow(self.gaussian_density[frame_start, :, :], interpolation='none')
+
+        # animation function.  This is called sequentially
+        def animate(i):
+            im.set_array(self.gaussian_density[i, :, :])
+            return [im]
+
+        # call the animator.  blit=True means only re-draw the parts that have changed.
+        anim = animation.FuncAnimation(fig, animate, frames=range(frame_start, frame_end+1),
+                                       interval=33, blit=True, repeat=False)
+
+        # save the animation as an mp4.  This requires ffmpeg or mencoder to be
+        # installed.  The extra_args ensure that the x264 codec is used, so that
+        # the video can be embedded in html5.  You may need to adjust this for
+        # your system: for more information, see
+        # http://matplotlib.sourceforge.net/api/animation_api.html
+        anim.save(outpath, fps=15, extra_args=['-vcodec', 'libx264'])
 
     def fit_kde(self):
         """
