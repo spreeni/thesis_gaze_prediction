@@ -90,6 +90,37 @@ class NSSCalculator:
 
         return time_gaze, em_phases
 
+    @staticmethod
+    def _calc_normalized_gaussian_density(gaze_px, n_frames):
+        """
+        Calculate discrete normalized (mean=0, std=1) gaussian density map for every pixel for every frame for given gaze data.
+
+        Args:
+            gaze_px:    Gaze data, array of shape (n, 2)
+            n_frames:   Number of total frames
+
+        Returns:
+
+        """
+        visual_angle_range_x = 2 * np.arctan(WIDTH_MM / 2. / DIST_MM) * 180 / np.pi
+        visual_angle_range_y = 2 * np.arctan(HEIGHT_MM / 2. / DIST_MM) * 180 / np.pi
+        sigmas = [SIGMA_T / T_FRAME, SIGMA_X * WIDTH_PX / visual_angle_range_x,
+                  SIGMA_Y * HEIGHT_PX / visual_angle_range_y]
+
+        point_map = np.zeros((n_frames, WIDTH_PX, HEIGHT_PX))
+        if type(gaze_px) != list:
+            gaze_px = [gaze_px]
+        for gaze in gaze_px:
+            for frame in range(len(gaze)):
+                x, y = gaze[frame].tolist()
+                x = WIDTH_PX if x > WIDTH_PX else (x if x > 0 else 1)
+                y = HEIGHT_PX if y > HEIGHT_PX else (y if y > 0 else 1)
+                point_map[frame, x - 1, y - 1] += 1
+
+        gaussian_density = gaussian_filter(point_map, sigmas)
+        gaussian_density = (gaussian_density - gaussian_density.mean()) / gaussian_density.std()
+        return gaussian_density
+
     def create_gaussian_density(self, export_path=None):
         """
         Calculate discrete gaussian density map for every pixel for every frame.
@@ -99,21 +130,8 @@ class NSSCalculator:
         """
         assert len(self.observer_data) > 0, "No observer data loaded yet."
 
-        visual_angle_range_x = 2 * np.arctan(WIDTH_MM/2. / DIST_MM) * 180 / np.pi
-        visual_angle_range_y = 2 * np.arctan(HEIGHT_MM/2. / DIST_MM) * 180 / np.pi
-        sigmas = [SIGMA_T / T_FRAME, SIGMA_X * WIDTH_PX / visual_angle_range_x, SIGMA_Y * HEIGHT_PX / visual_angle_range_y]
-
-        point_map = np.zeros((self.n_frames, WIDTH_PX, HEIGHT_PX))
-        for obs in self.observer_data:
-            gaze_px = self.observer_data[obs][1]
-            for frame in range(len(gaze_px)):
-                x, y = gaze_px[frame].tolist()
-                x = WIDTH_PX if x > WIDTH_PX else (x if x > 0 else 1)
-                y = HEIGHT_PX if y > HEIGHT_PX else (y if y > 0 else 1)
-                point_map[frame, x - 1, y - 1] += 1
-
-        self.gaussian_density = gaussian_filter(point_map, sigmas)
-        self.gaussian_density = (self.gaussian_density - self.gaussian_density.mean()) / self.gaussian_density.std()
+        gaze_px = [self.observer_data[obs][1] for obs in self.observer_data]
+        self.gaussian_density = self._calc_normalized_gaussian_density(gaze_px, self.n_frames)
 
         if export_path is not None:
             np.save(export_path, self.gaussian_density)
@@ -154,21 +172,40 @@ class NSSCalculator:
 
         return score / n_samples
 
-    def save_animated_gaussian_density(self, outpath, frame_start, frame_end):
-        assert self.gaussian_density is not None, "No observer data loaded yet."
+    def save_animated_gaussian_density(self, outpath, frame_start, frame_end, gaze_data=None):
+        """
+        Animate gaussian density per frame and save to a video file.
+
+        Args:
+            outpath:        Output file
+            frame_start:    Starting frame
+            frame_end:      End frame
+            gaze_data:      (Optional) Gaze data to calculate density map from - otherwise use density map from groundtruth
+
+        Returns:
+
+        """
+        assert (self.gaussian_density is not None) or (gaze_data is not None), "No gaze data loaded yet."
         assert frame_end > frame_start, "End frame index needs to be larger then start frame index"
-        assert (frame_end >= 0) and (frame_end <= self.gaussian_density.shape[0]), "End frame out of bounds"
-        assert (frame_start >= 0) and (frame_start <= self.gaussian_density.shape[0]), "Start frame out of bounds"
+        if gaze_data is None:
+            assert (frame_end >= 0) and (frame_end < self.gaussian_density.shape[0]), "End frame out of bounds"
+            assert (frame_start >= 0) and (frame_start < self.gaussian_density.shape[0]), "Start frame out of bounds"
+            density = self.gaussian_density
+        else:
+            n_frames = gaze_data.shape[-2]
+            assert (frame_end >= 0) and (frame_end < n_frames), "End frame out of bounds"
+            assert (frame_start >= 0) and (frame_start < n_frames), "Start frame out of bounds"
+            density = self._calc_normalized_gaussian_density(gaze_data, n_frames)
 
         fig = plt.figure(figsize=(10, 10))
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
         fig.add_axes(ax)
-        im = ax.imshow(self.gaussian_density[frame_start, :, :], interpolation='none')
+        im = ax.imshow(density[frame_start, :, :], interpolation='none')
 
         # animation function.  This is called sequentially
         def animate(i):
-            im.set_array(self.gaussian_density[i, :, :])
+            im.set_array(density[i, :, :])
             return [im]
 
         # call the animator.  blit=True means only re-draw the parts that have changed.
