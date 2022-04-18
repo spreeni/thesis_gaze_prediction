@@ -108,7 +108,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             
         embed_dim = out.shape[-1]
 
-        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads)
+        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads, device=device)
 
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
@@ -354,7 +354,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
                 lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
-                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
+                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
                 lambda_reg_fix=6., lambda_reg_sacc=0.1, channel_wise_attention=False, train_checkpoint=None):
     """
@@ -403,10 +403,10 @@ if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/all_videos_single_observer'
-    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
-    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
+    #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
+    #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
-    _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
+    _CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
     _BATCH_SIZE = 16
     _NUM_WORKERS = 1 # For one video
     #_NUM_WORKERS = 12  # Number of parallel processes fetching data
