@@ -86,7 +86,11 @@ def plot_frames_with_labels(
         save_to_directory=None
 ):
     """
-    Visualizes video frames with bounding boxes for gaze labels
+    Visualizes video frames with bounding boxes for gaze labels.
+
+    Can be used to plot averaged gaze data per frame together with raw gaze data.
+
+    Note: Can also be used to plot gaze data with multiple predictions - then set groundtruth as average gaze data and predicted as raw gaze data.
 
     Args:
         frames:             Frames as array of shape (n_frames, height, width, channels)
@@ -127,7 +131,10 @@ def plot_frames_with_labels(
             assert num_frames == len(
                 gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
             for i, gaze in enumerate(gaze_locations[i_frame]):
-                color = EM_COLOR_MAP[em_data[i_frame][i]] if em_data is not None else 'r'
+                if em_data is not None:
+                    color = EM_COLOR_MAP[em_data[i_frame][i]]
+                else:
+                    color = plt.get_cmap('tab10').colors[i]
                 label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
                                               linewidth=0.5, edgecolor=color, facecolor=color)#'none')
                 ax.add_patch(label_box)
