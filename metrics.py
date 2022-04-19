@@ -172,52 +172,63 @@ class NSSCalculator:
 
         return score / n_samples
 
-    def save_animated_gaussian_density(self, outpath, frame_start, frame_end, gaze_data=None):
+    def save_animated_gaussian_density(self, outpath, frame_start=0, frame_end=None, fps=29.97, animate=True, gaze_data=None):
         """
-        Animate gaussian density per frame and save to a video file.
+        Animate gaussian density per frame and save to a video file. Alternatively save mean over timeframe as picture.
 
         Args:
             outpath:        Output file
-            frame_start:    Starting frame
-            frame_end:      End frame
-            gaze_data:      (Optional) Gaze data to calculate density map from - otherwise use density map from groundtruth
+            frame_start:    (Optional) Starting frame, default is first frame
+            frame_end:      (Optional) End frame, default is last frame
+            fps:            (Optional) FPS of video, default is 29.97 (GazeCom)
+            animate:        (Optional) If True, results get animated for each frame; if False output mean over timeframe as picture
+            gaze_data:      (Optional) Gaze data to calculate density map from, default is density map from groundtruth
 
         Returns:
 
         """
         assert (self.gaussian_density is not None) or (gaze_data is not None), "No gaze data loaded yet."
-        assert frame_end > frame_start, "End frame index needs to be larger then start frame index"
+        assert (frame_end is None) or (frame_end > frame_start), "End frame index needs to be larger then start frame index"
         if gaze_data is None:
-            assert (frame_end >= 0) and (frame_end < self.gaussian_density.shape[0]), "End frame out of bounds"
+            assert (frame_end is None) or ((frame_end >= 0) and (frame_end < self.gaussian_density.shape[0])), "End frame out of bounds"
             assert (frame_start >= 0) and (frame_start < self.gaussian_density.shape[0]), "Start frame out of bounds"
             density = self.gaussian_density
         else:
             n_frames = gaze_data.shape[-2]
-            assert (frame_end >= 0) and (frame_end < n_frames), "End frame out of bounds"
+            assert (frame_end is None) or ((frame_end >= 0) and (frame_end < n_frames)), "End frame out of bounds"
             assert (frame_start >= 0) and (frame_start < n_frames), "Start frame out of bounds"
             density = self._calc_normalized_gaussian_density(gaze_data, n_frames)
+
+        if frame_end is None:
+            frame_end = density.shape[0] - 1
 
         fig = plt.figure(figsize=(10, 10))
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
         fig.add_axes(ax)
-        im = ax.imshow(density[frame_start, :, :], interpolation='none')
 
-        # animation function.  This is called sequentially
-        def animate(i):
-            im.set_array(density[i, :, :])
-            return [im]
+        if animate:
+            im = ax.imshow(density[frame_start, :, :], interpolation='none')
 
-        # call the animator.  blit=True means only re-draw the parts that have changed.
-        anim = animation.FuncAnimation(fig, animate, frames=range(frame_start, frame_end+1),
-                                       interval=33, blit=True, repeat=False)
+            # animation function.  This is called sequentially
+            def animate(i):
+                im.set_array(density[i, :, :])
+                return [im]
 
-        # save the animation as an mp4.  This requires ffmpeg or mencoder to be
-        # installed.  The extra_args ensure that the x264 codec is used, so that
-        # the video can be embedded in html5.  You may need to adjust this for
-        # your system: for more information, see
-        # http://matplotlib.sourceforge.net/api/animation_api.html
-        anim.save(outpath, fps=15, extra_args=['-vcodec', 'libx264'])
+            # call the animator.  blit=True means only re-draw the parts that have changed.
+            anim = animation.FuncAnimation(fig, animate, frames=range(frame_start, frame_end+1),
+                                           interval=1000/fps, blit=True, repeat=False)
+
+            # save the animation as an mp4.  This requires ffmpeg or mencoder to be
+            # installed.  The extra_args ensure that the x264 codec is used, so that
+            # the video can be embedded in html5.  You may need to adjust this for
+            # your system: for more information, see
+            # http://matplotlib.sourceforge.net/api/animation_api.html
+            anim.save(outpath, fps=round(fps), extra_args=['-vcodec', 'libx264'])
+        else:
+            im = ax.imshow(density[frame_start:frame_end+1, :, :].mean(axis=0), interpolation='none')
+            fig.savefig(outpath, dpi=300)
+        plt.close(fig)
 
     def fit_kde(self):
         """
@@ -320,7 +331,9 @@ class NSSCalculator:
 
 def train_kde_on_all_vids(rootdir):
     for root, dirs, files in os.walk(rootdir):
-        for video_name in tqdm(dirs):
+        pbar = tqdm(dirs)
+        for video_name in pbar:
+            pbar.set_description("Processing '%s'" % video_name)
             nss = NSSCalculator()
             nss.get_observer_data(video_name, rootdir)
             nss.fit_kde()
@@ -330,10 +343,24 @@ def train_kde_on_all_vids(rootdir):
 
 def train_gaussian_density_on_all_vids(rootdir):
     for root, dirs, files in os.walk(rootdir):
-        for video_name in tqdm(dirs):
+        pbar = tqdm(dirs)
+        for video_name in pbar:
+            pbar.set_description("Processing '%s'" % video_name)
             nss = NSSCalculator()
             nss.get_observer_data(video_name, rootdir)
             nss.create_gaussian_density(export_path=os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
+        break  # Only look at immediate directory content
+
+
+def animate_saliency_on_all_vids(rootdir):
+    for root, dirs, files in os.walk(rootdir):
+        pbar = tqdm(dirs)
+        for video_name in pbar:
+            pbar.set_description("Processing '%s'" % video_name)
+            nss = NSSCalculator()
+            nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
+            nss.save_animated_gaussian_density(os.path.join('plots', 'GazeCom', 'density_maps', f'{video_name}.mp4'), animate=True)
+            nss.save_animated_gaussian_density(os.path.join('plots', 'GazeCom', 'density_maps', f'{video_name}.png'), animate=False)
         break  # Only look at immediate directory content
 
 
@@ -342,11 +369,13 @@ def score_gaussian_density(video, gaze, frame_ids=None):
     nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video}.npy'))
     return nss.score_gaussian_density(gaze, frame_ids)
 
+
 if __name__ == "__main__":
     root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
     root = 'data/GazeCom/movies_m2t_224x224/label_data'
     #train_kde_on_all_vids(root)
     #train_gaussian_density_on_all_vids(root)
+    #animate_saliency_on_all_vids(root)
 
     # Test vs random data
     nss = NSSCalculator()
