@@ -3,11 +3,12 @@ import os
 import subprocess
 import shutil
 import numpy as np
+import matplotlib.pyplot as plt
 from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
 
 import utils
-from metrics import score_gaussian_density
+import metrics
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 from gaze_video_data_module import VAL_TRANSFORM
 from model import GazePredictionLightningModule
@@ -25,6 +26,7 @@ _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE
 _CHECKPOINT_PATH = r'data/lightning_logs/version_346/checkpoints/epoch=100-step=100.ckpt'
 
 _SCALE_UP = True
+_SHOW_SALIENCY = True
 
 _CLIP_DURATION = 5
 _VIDEO_SUFFIX = ''
@@ -45,7 +47,18 @@ dataset = gaze_labeled_video_dataset(
 )
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
-
+"""
+model = GazePredictionLightningModule(lr=1e-6, batch_size=16, frames=round(_CLIP_DURATION * 29.97),
+                                                        input_dims=(224, 224), out_channels=8,
+                                                        predict_em=False,
+                                                        fpn_only_use_last_layer=True,
+                                                        rim_hidden_size=400,
+                                                        rim_num_units=6, rim_k=4, rnn_cell='LSTM',
+                                                        rim_layers=1, attention_heads=2,
+                                                        p_teacher_forcing=0.3, n_teacher_vals=50,
+                                                        weight_init='xavier_normal', mode='RIM', loss_fn='mse_loss',
+                                                        lambda_reg_fix=6., lambda_reg_sacc=0.1, channel_wise_attention=False)
+"""
 em_encoder = OneHotEncoder()
 em_encoder.fit([[i] for i in range(4)])
 
@@ -102,20 +115,41 @@ for i in range(0, samples):
         print("em_data")
         print(em_data[:20])
 
-    nss_orig = score_gaussian_density(video_name, y.astype(int), frame_ids=frame_indices)
-    nss_scores = [score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices) for y_hat in y_hats]
+    nss_orig = metrics.score_gaussian_density(video_name, y.astype(int), frame_ids=frame_indices)
+    nss_scores = [metrics.score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices) for y_hat in y_hats]
     nss = np.array(nss_scores).mean()
     gaze_mid = np.ones(y.shape, dtype=np.int32) * 112
-    nss_mid = score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
+    nss_mid = metrics.score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
     print("NSS original clip:", nss_orig)
     print("NSS prediction:", nss, "all scores:", nss_scores)
     print("NSS middle baseline:", nss_mid, "\n")
     
-    y_hats = np.stack(y_hats, axis=1)
+    #y_hats = np.stack(y_hats, axis=1)
     if em_data_hats is not None:
         em_data_hats = np.stack(em_data_hats, axis=1)
 
-    utils.plot_frames_with_labels(frames, y, em_data, y_hats, em_data_hats, box_width=8, save_to_directory=save_dir)
+    if _SHOW_SALIENCY:
+        nss_calc = metrics.NSSCalculator()
+        nss_calc.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
+        density = nss_calc.gaussian_density[frame_indices[0]:frame_indices[-1] + 1, :, :]
+        density = np.swapaxes(density, 1, 2)
+
+        #nss_calc.save_animated_gaussian_density(os.path.join(_OUTPUT_DIR, f'{_MODE}_{i}_{video_name}_orig.png'), animate=False, gaze_data=y)
+        nss_calc.save_animated_gaussian_density(os.path.join(_OUTPUT_DIR, f'{_MODE}_{i}_{video_name}_orig.png'), animate=False, frame_start=frame_indices[0], frame_end=frame_indices[-1])
+        nss_calc.save_animated_gaussian_density(os.path.join(_OUTPUT_DIR, f'{_MODE}_{i}_{video_name}.png'), animate=False, gaze_data=y_hats)
+
+        # Norm to [threshhold, 1]
+        #density -= density.min(axis=(1, 2), keepdims=True)
+        #density /= density.max(axis=(1, 2), keepdims=True)
+        #density = density.clip(min=0.15)
+        
+        # Mask frames with gaussian density map
+        #frames = (frames.astype(float) * density[:, :, :, None]).astype(int)
+
+        color_overlay = (plt.cm.viridis(density) * 255)[:, :, :, :3]
+        frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
+
+    utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
     subprocess.call(f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate 10 -start_number 0 -i {i}/%03d.png -pix_fmt yuv420p {_MODE}_{i}.mp4", cwd=_OUTPUT_DIR, shell=True)
     shutil.rmtree(save_dir)
     with open(os.path.join(_OUTPUT_DIR, "metadata.txt"), "a") as f:
