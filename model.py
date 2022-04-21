@@ -102,6 +102,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         inp = torch.randn(frames, self.batch_size, 1 if not self.channel_wise_attention else out_channels, n_features, device=device)
         with torch.no_grad():
             if self.mode == 'LSTM':
+                inp = inp.reshape(frames, self.batch_size, n_features)
                 out, _ = self.lstm(inp)
             else:
                 out, _, _ = self.rim(inp)
@@ -212,7 +213,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                         # Add ground truth for random mask to input features of next iteration
                         x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
             if self.mode == 'LSTM':
-                x, (h, c) = self.lstm(x, (h, c))
+                x, (h, c) = self.lstm(x[:, :, 0, :], (h, c))
             else:
                 x, h, c = self.rim(x, h=h, c=c)
             output, attn_output_weights = self.multihead_attn(x, x, x)
