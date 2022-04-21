@@ -96,7 +96,7 @@ class NSSCalculator:
         Calculate discrete normalized (mean=0, std=1) gaussian density map for every pixel for every frame for given gaze data.
 
         Args:
-            gaze_px:    Gaze data, array of shape (n, 2)
+            gaze_px:    Gaze data, array of shape (k, t, 2)
             n_frames:   Number of total frames
 
         Returns:
@@ -112,7 +112,7 @@ class NSSCalculator:
             gaze_px = [gaze_px]
         for gaze in gaze_px:
             for frame in range(len(gaze)):
-                x, y = gaze[frame].tolist()
+                x, y = gaze[frame].astype(int).tolist()
                 x = WIDTH_PX if x > WIDTH_PX else (x if x > 0 else 1)
                 y = HEIGHT_PX if y > HEIGHT_PX else (y if y > 0 else 1)
                 point_map[frame, x - 1, y - 1] += 1
@@ -194,7 +194,10 @@ class NSSCalculator:
             assert (frame_start >= 0) and (frame_start < self.gaussian_density.shape[0]), "Start frame out of bounds"
             density = self.gaussian_density
         else:
-            n_frames = gaze_data.shape[-2]
+            if type(gaze_data) == list:
+                n_frames = gaze_data[0].shape[-2]
+            else:
+                n_frames = gaze_data.shape[-2]
             assert (frame_end is None) or ((frame_end >= 0) and (frame_end < n_frames)), "End frame out of bounds"
             assert (frame_start >= 0) and (frame_start < n_frames), "Start frame out of bounds"
             density = self._calc_normalized_gaussian_density(gaze_data, n_frames)
@@ -224,7 +227,7 @@ class NSSCalculator:
             # the video can be embedded in html5.  You may need to adjust this for
             # your system: for more information, see
             # http://matplotlib.sourceforge.net/api/animation_api.html
-            anim.save(outpath, fps=round(fps), extra_args=['-vcodec', 'libx264'])
+            anim.save(outpath, fps=round(fps))#, extra_args=['-vcodec', 'libx264'])
         else:
             im = ax.imshow(density[frame_start:frame_end+1, :, :].mean(axis=0), interpolation='none')
             fig.savefig(outpath, dpi=300)
