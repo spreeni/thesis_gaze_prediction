@@ -119,15 +119,16 @@ class GroupGRUCell(nn.Module):
 
 class RIMCell(nn.Module):
     def __init__(self,
-                 device, input_size, hidden_size, num_units, k, rnn_cell, input_key_size=64, input_value_size=400,
+                 device, input_size, hidden_size, num_units, k, rnn_cell, output_layer=None, input_key_size=64, input_value_size=400,
                  input_query_size=64, num_input_heads=1, input_dropout=0.1, comm_key_size=32, comm_value_size=100,
-                 comm_query_size=32, num_comm_heads=4, comm_dropout=0.1
+                 comm_query_size=32, num_comm_heads=4, comm_dropout=0.1, p_teacher_forcing=0., n_teacher_vals=0,
                  ):
         super().__init__()
         if comm_value_size != hidden_size:
             # print('INFO: Changing communication value size to match hidden_size')
             comm_value_size = hidden_size
         self.device = device
+        self.output_layer = output_layer
         self.hidden_size = hidden_size
         self.num_units = num_units
         self.rnn_cell = rnn_cell
@@ -142,6 +143,9 @@ class RIMCell(nn.Module):
         self.comm_key_size = comm_key_size
         self.comm_query_size = comm_query_size
         self.comm_value_size = comm_value_size
+
+        self.p_teacher_forcing = p_teacher_forcing
+        self.n_teacher_vals = n_teacher_vals
 
         self.key = nn.Linear(input_size, num_input_heads * input_key_size).to(self.device)
         self.value = nn.Linear(input_size, num_input_heads * input_value_size).to(self.device)
@@ -244,13 +248,14 @@ class RIMCell(nn.Module):
 
         return context_layer
 
-    def forward(self, x, hs, cs=None):
+    def forward(self, x, hs, cs=None, y=None):
         """
-        Input : x (batch_size, 1 , input_size) or (batch_size, 1, channels, input_size) for channel-wise attention
+        Input : x (batch_size, 1, input_size) or (batch_size, 1, channels, input_size) for channel-wise attention
                 hs (batch_size, num_units, hidden_size)
                 cs (batch_size, num_units, hidden_size)
-        Output: new hs, cs for LSTM
-                new hs for GRU
+                y (batch_size, 1, target_size)
+        Output: y_hat and new hs, cs for LSTM
+                y_hat and new hs for GRU
         """
         null_size = list(x.size())
         if len(null_size) == 4:   # channels given separately
@@ -281,11 +286,12 @@ class RIMCell(nn.Module):
         h_new = self.communication_attention(h_new, mask.squeeze(2))
 
         hs = mask * h_new + (1 - mask) * h_old
+        y_hat = self.output_layer(hs) if self.output_layer is not None else None
         if cs is not None:
             cs = mask * cs + (1 - mask) * c_old
-            return hs, cs
+            return y_hat, hs, cs
 
-        return hs, None
+        return y_hat, hs, None
 
 
 class RIM(nn.Module):
@@ -309,18 +315,21 @@ class RIM(nn.Module):
                                           RIMCell(self.device, hidden_size * self.num_units, hidden_size, num_units, k,
                                                   rnn_cell, **kwargs).to(self.device) for i in range(self.n_layers)])
 
-    def layer(self, rim_layer, x, h, c=None, direction=0):
+    def layer(self, rim_layer, x, h, c=None, direction=0, y=None):
         batch_size = x.size(1)
         xs = list(torch.split(x, 1, dim=0))
+        if y is not None:
+            ys = list(torch.split(y, 1, dim=0))
         if direction == 1: xs.reverse()
         hs = h.squeeze(0).view(batch_size, self.num_units, -1)
         cs = None
         if c is not None:
             cs = c.squeeze(0).view(batch_size, self.num_units, -1)
         outputs = []
-        for x in xs:
+        for i, x in enumerate(xs):
             x = x.squeeze(0)
-            hs, cs = rim_layer(x.unsqueeze(1), hs, cs)
+            y = ys[i-1] if (y is None) and (i != 0) else None
+            y_hat, hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y=y)
             outputs.append(hs.view(1, batch_size, -1))
         if direction == 1: outputs.reverse()
         outputs = torch.cat(outputs, dim=0)
@@ -329,11 +338,12 @@ class RIM(nn.Module):
         else:
             return outputs, hs.view(batch_size, -1)
 
-    def forward(self, x, h=None, c=None):
+    def forward(self, x, h=None, c=None, y=None):
         """
-        Input: x (seq_len, batch_size, feature_size
+        Input: x (seq_len, batch_size, feature_size)
                h (num_layers * num_directions, batch_size, hidden_size * num_units)
                c (num_layers * num_directions, batch_size, hidden_size * num_units)
+               y (seq_len, batch_size, target_size)
         Output: outputs (batch_size, seqlen, hidden_size * num_units * num-directions)
                 h(and c) (num_layer * num_directions, batch_size, hidden_size* num_units)
         """
@@ -351,15 +361,15 @@ class RIM(nn.Module):
         for n in range(self.n_layers):
             idx = n * self.num_directions
             if cs is not None:
-                x_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx])
+                x_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], y=y)
             else:
-                x_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None)
+                x_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, y=y)
             if self.num_directions == 2:
                 idx = n * self.num_directions + 1
                 if cs is not None:
-                    x_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1)
+                    x_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1, y=y)
                 else:
-                    x_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1)
+                    x_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1, y=y)
 
                 x = torch.cat((x_fw, x_bw), dim=2)
             else:
