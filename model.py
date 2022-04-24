@@ -42,8 +42,9 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
-                 rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals,
-                 weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc, channel_wise_attention):
+                 rnn_cell, rim_layers, out_attn_heads, p_teacher_forcing, n_teacher_vals,
+                 weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc, input_attn_heads,
+                 input_dropout, comm_dropout, channel_wise_attention):
         super().__init__()
 
         self.rim_hidden_size = rim_hidden_size
@@ -89,9 +90,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
                 bidirectional=False,
-                num_input_heads=2,
-                input_dropout=0.2,
-                comm_dropout=0.2
+                num_input_heads=input_attn_heads,
+                input_dropout=input_dropout,
+                comm_dropout=comm_dropout
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
@@ -109,7 +110,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             
         embed_dim = out.shape[-1]
 
-        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads, device=device)
+        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, out_attn_heads, device=device)
 
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
@@ -355,9 +356,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
                 lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
                 rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
-                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
+                out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                lambda_reg_fix=6., lambda_reg_sacc=0.1, channel_wise_attention=False, train_checkpoint=None):
+                lambda_reg_fix=6., lambda_reg_sacc=0.1, input_attn_heads=3, input_dropout=0.2,
+                comm_dropout=0.2, channel_wise_attention=False, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """
@@ -370,11 +372,12 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
-                                                        rim_layers=rim_layers, attention_heads=attention_heads,
+                                                        rim_layers=rim_layers, out_attn_heads=out_attn_heads,
                                                         p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals, 
                                                         weight_init=weight_init, mode=mode, loss_fn=loss_fn,
                                                         lambda_reg_fix=lambda_reg_fix, lambda_reg_sacc=lambda_reg_sacc,
-                                                        channel_wise_attention=channel_wise_attention)
+                                                        input_attn_heads=input_attn_heads, input_dropout=input_dropout,
+                                                        comm_dropout=comm_dropout, channel_wise_attention=channel_wise_attention)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
