@@ -188,18 +188,32 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
         return sample_dict
 
-    def get_clip(self, video_name: str, observer: str, clip_start: float, clip_end: float) -> Dict:
+    def get_clip(self, video_name: str, observer: str, clip_start: float, clip_end: Optional[float] = None) -> Dict:
         """
-        Helper function to sample custom clip data.
+        Helper function to sample custom clip data. Returns dictionary analog to __next__
 
         Args:
-            video_name:
-            observer:
-            clip_start:
-            clip_end:
+            video_name: Name of video
+            observer:   Name of observer
+            clip_start: Clip start time in seconds
+            clip_end:   (Optional) Clip end time in seconds, default is clip_duration in clip sampler
 
         Returns:
+            A dictionary with the following format.
 
+            .. code-block:: text
+
+                {
+                    'video': <video_tensor>,
+                    'video_name': <video_name>,
+                    'video_index': <video_index>,
+                    'clip_index': <clip_index>,
+                    'aug_index': <aug_index>,
+                    'observer': <observer_abbreviation>,
+                    'frame_labels': <label_tensor>
+                    'em_data': <em_label_tensor> (optional)
+                    'audio': <audio_data> (optional)
+                }
         """
         video_path, label_path = self._video_and_label_paths.get_paths_for_video_observer(video_name, observer)
         video = self.video_path_handler.video_from_path(
@@ -211,6 +225,8 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         # Load frame labels and em phase data from label file
         loaded_frame_labels, loaded_em_data = utils.read_label_file(label_path, with_video_name=False)
 
+        if clip_end is None:
+            clip_end = clip_start + self._clip_sampler._clip_duration
         loaded_clip = video.get_clip(clip_start, clip_end)
 
         try:  # TODO: Check that labels exist for frame_indices
