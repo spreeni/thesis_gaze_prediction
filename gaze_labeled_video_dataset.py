@@ -30,13 +30,13 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
     _MAX_CONSECUTIVE_FAILURES = 10
 
     def __init__(
-        self,
-        video_and_label_paths: List[Tuple[str, str]],
-        clip_sampler: ClipSampler,
-        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-        transform: Optional[Callable[[dict], Any]] = None,
-        decode_audio: bool = True,
-        decoder: str = "pyav",
+            self,
+            video_and_label_paths: VideosObserversPaths,
+            clip_sampler: ClipSampler,
+            video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+            transform: Optional[Callable[[dict], Any]] = None,
+            decode_audio: bool = True,
+            decoder: str = "pyav",
     ) -> None:
         """
         Args:
@@ -128,7 +128,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         return len({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
 
     @property
-    def video_observer_combinations(self) -> List[Tuple[str, str]]:
+    def video_observer_combinations(self) -> VideosObserversPaths:
         """
         Returns:
             List of video-observer combinations in dataset.
@@ -150,6 +150,82 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
             List of observers in dataset.
         """
         return list({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
+
+    def _build_sample_dict(self, loaded_clip, loaded_frame_labels, loaded_em_data, video_name, observer,
+                           video_index=None, clip_index=None, aug_index=None):
+        frames = loaded_clip["video"]
+        frame_indices = loaded_clip["frame_indices"]
+        audio_samples = loaded_clip["audio"]
+        frame_labels = torch.tensor(loaded_frame_labels, dtype=torch.float32)[frame_indices]
+        em_data = torch.tensor(loaded_em_data, dtype=torch.int8)[
+            frame_indices] if loaded_em_data else None
+
+        # Normalize gaze location labels to range [-1, 1]
+        max_h, max_w = frames.shape[-2:]
+        frame_labels[:, 0] = torch.clamp(frame_labels[:, 0], min=0, max=max_h - 1)
+        frame_labels[:, 1] = torch.clamp(frame_labels[:, 1], min=0, max=max_w - 1)
+        frame_labels = (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
+
+        # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
+        if self._loaded_em_data:
+            em_data = torch.tensor(self.em_encoder.transform(em_data[:, None]).toarray(), dtype=torch.float32)
+
+        sample_dict = {
+            "video": frames,
+            "video_name": video_name,
+            "video_index": video_index,
+            "clip_index": clip_index,
+            "aug_index": aug_index,
+            "observer": observer,
+            "frame_labels": frame_labels,
+            "frame_indices": frame_indices,
+            **({"em_data": em_data} if em_data is not None else {}),
+            **({"audio": audio_samples} if audio_samples is not None else {}),
+        }
+
+        if self._transform is not None:
+            sample_dict = self._transform(sample_dict)
+
+        return sample_dict
+
+    def get_clip(self, video_name: str, observer: str, clip_start: float, clip_end: float) -> Dict:
+        """
+        Helper function to sample custom clip data.
+
+        Args:
+            video_name:
+            observer:
+            clip_start:
+            clip_end:
+
+        Returns:
+
+        """
+        video_path, label_path = self._video_and_label_paths.get_paths_for_video_observer(video_name, observer)
+        video = self.video_path_handler.video_from_path(
+            video_path,
+            decode_audio=self._decode_audio,
+            decoder=self._decoder,
+        )
+
+        # Load frame labels and em phase data from label file
+        loaded_frame_labels, loaded_em_data = utils.read_label_file(label_path, with_video_name=False)
+
+        loaded_clip = video.get_clip(clip_start, clip_end)
+
+        try:  # TODO: Check that labels exist for frame_indices
+            sample_dict = self._build_sample_dict(loaded_clip, loaded_frame_labels, loaded_em_data, video_name,
+                                                  observer)
+        except Exception as e:
+            logger.debug(
+                "Failed to select label data with error: {}".format(e)
+            )
+
+        # User can force dataset to continue by returning None in transform.
+        if sample_dict is None:
+            raise Exception("Error: Transform returned None on requested clip.")
+
+        return sample_dict
 
     def __next__(self) -> dict:
         """
@@ -223,7 +299,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
             self._next_clip_start_time = clip_end
 
             video_is_null = (
-                self._loaded_clip is None or self._loaded_clip["video"] is None
+                    self._loaded_clip is None or self._loaded_clip["video"] is None
             )
             if is_last_clip or video_is_null:
                 # Close the loaded encoded video and reset the last sampled clip time ready
@@ -237,38 +313,12 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                         "Failed to load clip {}; trial {}".format(video.name, i_try)
                     )
                     continue
-            
+
             try:  # TODO: Check that labels exist for frame_indices
-                frames = self._loaded_clip["video"]
-                frame_indices = self._loaded_clip["frame_indices"]
-                audio_samples = self._loaded_clip["audio"]
                 observer = utils.get_observer_from_label_path(label_path)
-                frame_labels = torch.tensor(self._loaded_frame_labels, dtype=torch.float32)[frame_indices]
-                em_data = torch.tensor(self._loaded_em_data, dtype=torch.int8)[
-                    frame_indices] if self._loaded_em_data else None
-                
-                # Normalize gaze location labels to range [-1, 1]
-                max_h, max_w = frames.shape[-2:]
-                frame_labels[:, 0] = torch.clamp(frame_labels[:, 0], min=0, max=max_h - 1)
-                frame_labels[:, 1] = torch.clamp(frame_labels[:, 1], min=0, max=max_w - 1)
-                frame_labels =  (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
-
-                # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
-                if self._loaded_em_data:
-                    em_data = torch.tensor(self.em_encoder.transform(em_data[:, None]).toarray(), dtype=torch.float32)
-
-                sample_dict = {
-                    "video": frames,
-                    "video_name": video.name,
-                    "video_index": video_index,
-                    "clip_index": clip_index,
-                    "aug_index": aug_index,
-                    "observer": observer,
-                    "frame_labels": frame_labels,
-                    "frame_indices": frame_indices,
-                    **({"em_data": em_data} if em_data is not None else {}),
-                    **({"audio": audio_samples} if audio_samples is not None else {}),
-                }
+                sample_dict = self._build_sample_dict(self._loaded_clip, self._loaded_frame_labels,
+                                                      self._loaded_em_data, video.name,
+                                                      observer, video_index, clip_index, aug_index)
             except Exception as e:
                 logger.debug(
                     "Failed to select label data with error: {}; trial {}".format(
@@ -278,12 +328,9 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                 )
                 continue
 
-            if self._transform is not None:
-                sample_dict = self._transform(sample_dict)
-
-                # User can force dataset to continue by returning None in transform.
-                if sample_dict is None:
-                    continue
+            # User can force dataset to continue by returning None in transform.
+            if sample_dict is None:
+                continue
 
             return sample_dict
         else:
@@ -307,14 +354,14 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
 
 
 def gaze_labeled_video_dataset(
-    data_path: str,
-    clip_sampler: ClipSampler,
-    video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-    transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    video_path_prefix: str = "",
-    video_file_suffix: str = "",
-    decode_audio: bool = True,
-    decoder: str = "pyav",
+        data_path: str,
+        clip_sampler: ClipSampler,
+        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        video_path_prefix: str = "",
+        video_file_suffix: str = "",
+        decode_audio: bool = True,
+        decoder: str = "pyav",
 ) -> GazeLabeledVideoDataset:
     """
     A helper function to create ``LabeledVideoDataset`` object for Ucf101 and Kinetics datasets.
@@ -353,7 +400,7 @@ def gaze_labeled_video_dataset(
 
     """
     videos_and_observers = VideosObserversPaths.from_path(data_path, video_file_suffix)
-    #videos_and_observers.path_prefix = video_path_prefix
+    # videos_and_observers.path_prefix = video_path_prefix
     dataset = GazeLabeledVideoDataset(
         videos_and_observers,
         clip_sampler,
