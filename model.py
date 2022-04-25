@@ -75,12 +75,16 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         print(f"FPN produces {n_features} different Features")
 
         self.out_features = 6 if self.predict_em else 2
-        if n_teacher_vals > 0:
-            n_features += n_teacher_vals * self.out_features
 
         if self.mode == 'LSTM':
             self.lstm = torch.nn.LSTM(input_size=n_features, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
+            multihead_attn = torch.nn.MultiheadAttention(rim_hidden_size*rim_num_units, out_attn_heads, device=device)
+
+            # here comes the hack, because MultiheadAttention maps to embed_dim
+            factory_kwargs = {'device': multihead_attn.in_proj_weight.device, 'dtype':  multihead_attn.in_proj_weight.dtype}
+            multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(rim_hidden_size*rim_num_units, self.out_features, bias=multihead_attn.in_proj_bias is not None, **factory_kwargs)
+
             self.rim = RIM(
                 device=device,
                 input_size=n_features,
@@ -90,13 +94,17 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
                 bidirectional=False,
+                output_layer=multihead_attn,
                 num_input_heads=input_attn_heads,
                 input_dropout=input_dropout,
-                comm_dropout=comm_dropout
+                comm_dropout=comm_dropout,
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
                 #comm_value_size=100
+                p_teacher_forcing = p_teacher_forcing,
+                n_teacher_vals = n_teacher_vals,
+                out_features=self.out_features
             )
 
         # Dry run to get input size for end layer
@@ -183,44 +191,14 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         out_channels = x.shape[2]
         x = torch.swapaxes(x, 0, 1)         # RIM expects tensor of shape (seq, B, features)
 
-        # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
-        xs = list(torch.split(x, 1, dim = 0))
-        outputs = []
-
         if self.mode == 'LSTM':
-            h = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
-            c = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
+            x, (h, c) = self.lstm(x[:, :, 0, :])
+            out, attn_weights = self.multihead_attn(x, x, x)
+            out = torch.tanh(out)
         else:
-            h, c = None, None
-        for i, x in enumerate(xs):
-            # If teacher forcing activated, extend features with possible teacher values
-            if self.n_teacher_vals > 0:
-                x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
-
-                if i != 0:
-                    # Add output of previous iteration to input features of next iteration
-                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
-                    x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
-
-                    if y is not None:
-                        y_prev = y[:, i-1, :]
-
-                        # Repeat label values n_teacher_vals times
-                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
-
-                        # Create random mask over batch
-                        random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
-
-                        # Add ground truth for random mask to input features of next iteration
-                        x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
-            if self.mode == 'LSTM':
-                x, (h, c) = self.lstm(x[:, :, 0, :], (h, c))
-            else:
-                x, h, c = self.rim(x, h=h, c=c)
-            output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(torch.tanh(output))
-        out = torch.cat(outputs, dim = 0)
-
+            if y is not None:
+                y = torch.swapaxes(y, 0, 1)
+            out, h, c = self.rim(x, y=y)
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
 

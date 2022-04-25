@@ -119,16 +119,16 @@ class GroupGRUCell(nn.Module):
 
 class RIMCell(nn.Module):
     def __init__(self,
-                 device, input_size, hidden_size, num_units, k, rnn_cell, output_layer=None, input_key_size=64, input_value_size=400,
+                 device, input_size, hidden_size, num_units, k, rnn_cell, input_key_size=64, input_value_size=400,
                  input_query_size=64, num_input_heads=1, input_dropout=0.1, comm_key_size=32, comm_value_size=100,
                  comm_query_size=32, num_comm_heads=4, comm_dropout=0.1, p_teacher_forcing=0., n_teacher_vals=0,
+                 out_features=2
                  ):
         super().__init__()
         if comm_value_size != hidden_size:
             # print('INFO: Changing communication value size to match hidden_size')
             comm_value_size = hidden_size
         self.device = device
-        self.output_layer = output_layer
         self.hidden_size = hidden_size
         self.num_units = num_units
         self.rnn_cell = rnn_cell
@@ -146,15 +146,16 @@ class RIMCell(nn.Module):
 
         self.p_teacher_forcing = p_teacher_forcing
         self.n_teacher_vals = n_teacher_vals
+        self.out_features = out_features
 
         self.key = nn.Linear(input_size, num_input_heads * input_key_size).to(self.device)
         self.value = nn.Linear(input_size, num_input_heads * input_value_size).to(self.device)
         self.query = GroupLinearLayer(hidden_size, num_input_heads * input_query_size, self.num_units)
 
         if self.rnn_cell == 'GRU':
-            self.rnn = GroupGRUCell(input_value_size, hidden_size, num_units)
+            self.rnn = GroupGRUCell(input_value_size + n_teacher_vals * out_features, hidden_size, num_units)
         else:
-            self.rnn = GroupLSTMCell(input_value_size, hidden_size, num_units)
+            self.rnn = GroupLSTMCell(input_value_size + n_teacher_vals * out_features, hidden_size, num_units)
 
         self.query_ = GroupLinearLayer(hidden_size, comm_query_size * num_comm_heads, self.num_units)
         self.key_ = GroupLinearLayer(hidden_size, comm_key_size * num_comm_heads, self.num_units)
@@ -248,14 +249,44 @@ class RIMCell(nn.Module):
 
         return context_layer
 
-    def forward(self, x, hs, cs=None, y=None):
+    def _apply_teacher_forcing(self, x, y_prev, y_hat_prev):
+        """
+        Input : x (batch_size, num_units, input_value_size)
+                y_prev (1, batch_size, target_size)
+                y_hat_prev (1, batch_size, target_size)
+        Output: padded x (batch_size, num_units, input_value_size + n_teacher_vals * out_features)
+        """
+        if self.n_teacher_vals > 0:
+            x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+
+            if y_hat_prev is not None:
+                # Add output of previous iteration to input features of next iteration
+                y_hat_prev = y_hat_prev[0].unsqueeze(1)
+                y_hat_prev_repeated = torch.tile(y_hat_prev, (1, 1, self.n_teacher_vals))
+
+                x[:, :, -self.n_teacher_vals * self.out_features:] = y_hat_prev_repeated
+
+                if y_prev is not None:
+                    # Repeat label values n_teacher_vals times
+                    y_prev = y_prev[0].unsqueeze(1)
+                    y_prev_repeated = torch.tile(y_prev, (1, self.num_units, self.n_teacher_vals))
+
+                    # Create random mask over batch
+                    random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=self.device) < self.p_teacher_forcing
+
+                    # Add ground truth for random mask to input features of next iteration
+                    x[:, :, -self.n_teacher_vals * self.out_features:][random_mask, :] = y_prev_repeated[random_mask, :]
+        return x
+
+    def forward(self, x, hs, cs=None, y_prev=None, y_hat_prev=None):
         """
         Input : x (batch_size, 1, input_size) or (batch_size, 1, channels, input_size) for channel-wise attention
                 hs (batch_size, num_units, hidden_size)
                 cs (batch_size, num_units, hidden_size)
-                y (batch_size, 1, target_size)
-        Output: y_hat and new hs, cs for LSTM
-                y_hat and new hs for GRU
+                y_prev (1, batch_size, target_size)
+                y_hat_prev (1, batch_size, target_size)
+        Output: new hs, cs for LSTM
+                new hs for GRU
         """
         null_size = list(x.size())
         if len(null_size) == 4:   # channels given separately
@@ -272,7 +303,7 @@ class RIMCell(nn.Module):
             c_old = cs * 1.0
 
         # Compute RNN(LSTM or GRU) output
-
+        inputs = self._apply_teacher_forcing(inputs, y_prev, y_hat_prev)
         if cs is not None:
             hs, cs = self.rnn(inputs, (hs, cs))
         else:
@@ -286,18 +317,18 @@ class RIMCell(nn.Module):
         h_new = self.communication_attention(h_new, mask.squeeze(2))
 
         hs = mask * h_new + (1 - mask) * h_old
-        y_hat = self.output_layer(hs) if self.output_layer is not None else None
         if cs is not None:
             cs = mask * cs + (1 - mask) * c_old
-            return y_hat, hs, cs
+            return hs, cs
 
-        return y_hat, hs, None
+        return hs, None
 
 
 class RIM(nn.Module):
-    def __init__(self, device, input_size, hidden_size, num_units, k, rnn_cell, n_layers, bidirectional, **kwargs):
+    def __init__(self, device, input_size, hidden_size, num_units, k, rnn_cell, n_layers, bidirectional, output_layer=None, **kwargs):
         super().__init__()
         self.device = device
+        self.output_layer = output_layer
         self.n_layers = n_layers
         self.num_directions = 2 if bidirectional else 1
         self.rnn_cell = rnn_cell
@@ -320,17 +351,26 @@ class RIM(nn.Module):
         xs = list(torch.split(x, 1, dim=0))
         if y is not None:
             ys = list(torch.split(y, 1, dim=0))
-        if direction == 1: xs.reverse()
+        if direction == 1:
+            xs.reverse()
+            if y is not None:
+                ys.reverse()
         hs = h.squeeze(0).view(batch_size, self.num_units, -1)
         cs = None
         if c is not None:
             cs = c.squeeze(0).view(batch_size, self.num_units, -1)
         outputs = []
+        y_hat = None
         for i, x in enumerate(xs):
             x = x.squeeze(0)
-            y = ys[i-1] if (y is None) and (i != 0) else None
-            y_hat, hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y=y)
-            outputs.append(hs.view(1, batch_size, -1))
+            y_prev = ys[i-1] if (y is not None) and (i != 0) else None
+            hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y_prev=y_prev, y_hat_prev=y_hat)
+            out = hs.view(1, batch_size, -1)
+            if self.output_layer is not None:
+                y_hat, attn_weights = self.output_layer(out, out, out)
+                outputs.append(torch.tanh(y_hat))
+            else:
+                outputs.append(out)
         if direction == 1: outputs.reverse()
         outputs = torch.cat(outputs, dim=0)
         if c is not None:
