@@ -111,7 +111,7 @@ def plot_frames_with_labels(
             avg_em_data), f"Number of gaze locations and eye data classification labels needs to be the same: {len(avg_gaze_locations)} != {len(avg_em_data)}."
 
     fig = plt.figure(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
-    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax = plt.Axes(fig, [0., -0.05, 1., 1.])
     ax.set_axis_off()
     fig.add_axes(ax)
     for i_frame in range(min(num_frames, len(avg_gaze_locations))):
