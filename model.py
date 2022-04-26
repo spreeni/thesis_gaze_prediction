@@ -245,7 +245,11 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Gaze regression loss: loss_fn can be mse_loss/l1_loss/smooth_l1_loss
         loss_fn = getattr(F, self.loss_fn)
-        loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        if not self.predict_change:
+            loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        else:
+            gaze_pos = torch.tanh(y_hat[:, :, :2].cumsum(axis=0))
+            loss = loss_fn(gaze_pos[not_noise], batch['frame_labels'][not_noise])
 
         # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
         # First timepoint is ignored as it does not have a previous comparison
@@ -400,7 +404,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                                         comm_dropout=comm_dropout, channel_wise_attention=channel_wise_attention,
                                                         predict_change=predict_change)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
-                                      clip_duration=clip_duration, num_workers=num_workers, predict_change=predict_change)
+                                      clip_duration=clip_duration, num_workers=num_workers, predict_change=False)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
 
     #summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
