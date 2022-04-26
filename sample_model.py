@@ -47,7 +47,7 @@ dataset = gaze_labeled_video_dataset(
     video_file_suffix=_VIDEO_SUFFIX,
     decode_audio=False,
     decoder="pyav",
-    predict_change=CHANGE_DATA
+    predict_change=_CHANGE_DATA
 )
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
@@ -118,8 +118,12 @@ for i in range(0, samples):
         em_data = em_data
 
     if _SCALE_UP:
-        y_hats = [(y_hat + 1) * 112 for y_hat in y_hats]
-        y = (y + 1) * 112
+        if not _CHANGE_DATA:
+            y_hats = [(y_hat + 1) * 112 for y_hat in y_hats]
+            y = (y + 1) * 112
+        else:  # account for previous padding
+            y_hats = [(y_hat + 1) * 113 - 1 for y_hat in y_hats]
+            y = (y + 1) * 113 - 1
 
     print("y_hat")
     print(y_hats[0][:5])
