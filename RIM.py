@@ -325,10 +325,9 @@ class RIMCell(nn.Module):
 
 
 class RIM(nn.Module):
-    def __init__(self, device, input_size, hidden_size, num_units, k, rnn_cell, n_layers, bidirectional, output_layer=None, **kwargs):
+    def __init__(self, device, input_size, hidden_size, num_units, k, rnn_cell, n_layers, bidirectional, **kwargs):
         super().__init__()
         self.device = device
-        self.output_layer = output_layer
         self.n_layers = n_layers
         self.num_directions = 2 if bidirectional else 1
         self.rnn_cell = rnn_cell
@@ -346,31 +345,19 @@ class RIM(nn.Module):
                                           RIMCell(self.device, hidden_size * self.num_units, hidden_size, num_units, k,
                                                   rnn_cell, **kwargs).to(self.device) for i in range(self.n_layers)])
 
-    def layer(self, rim_layer, x, h, c=None, direction=0, y=None):
+    def layer(self, rim_layer, x, h, c=None, direction=0, y_prev=None, y_hat_prev=None):
         batch_size = x.size(1)
         xs = list(torch.split(x, 1, dim=0))
-        if y is not None:
-            ys = list(torch.split(y, 1, dim=0))
-        if direction == 1:
-            xs.reverse()
-            if y is not None:
-                ys.reverse()
+        if direction == 1: xs.reverse()
         hs = h.squeeze(0).view(batch_size, self.num_units, -1)
         cs = None
         if c is not None:
             cs = c.squeeze(0).view(batch_size, self.num_units, -1)
         outputs = []
-        y_hat = None
-        for i, x in enumerate(xs):
+        for x in xs:
             x = x.squeeze(0)
-            y_prev = ys[i-1] if (y is not None) and (i != 0) else None
-            hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y_prev=y_prev, y_hat_prev=y_hat)
-            out = hs.view(1, batch_size, -1)
-            if self.output_layer is not None:
-                y_hat, attn_weights = self.output_layer(out, out, out)
-                outputs.append(torch.tanh(y_hat))
-            else:
-                outputs.append(out)
+            hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y_prev=y_prev, y_hat_prev=y_hat_prev)
+            outputs.append(hs.view(1, batch_size, -1))
         if direction == 1: outputs.reverse()
         outputs = torch.cat(outputs, dim=0)
         if c is not None:
@@ -378,12 +365,13 @@ class RIM(nn.Module):
         else:
             return outputs, hs.view(batch_size, -1)
 
-    def forward(self, x, h=None, c=None, y=None):
+    def forward(self, x, h=None, c=None, y_prev=None, y_hat_prev=None):
         """
-        Input: x (seq_len, batch_size, feature_size)
+        Input: x (seq_len, batch_size, feature_size
                h (num_layers * num_directions, batch_size, hidden_size * num_units)
                c (num_layers * num_directions, batch_size, hidden_size * num_units)
-               y (seq_len, batch_size, target_size)
+               y_prev (1, batch_size, target_size)
+               y_hat_prev (1, batch_size, target_size)
         Output: outputs (batch_size, seqlen, hidden_size * num_units * num-directions)
                 h(and c) (num_layer * num_directions, batch_size, hidden_size* num_units)
         """
@@ -401,15 +389,15 @@ class RIM(nn.Module):
         for n in range(self.n_layers):
             idx = n * self.num_directions
             if cs is not None:
-                x_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], y=y)
+                x_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], y_prev=y_prev, y_hat_prev=y_hat_prev)
             else:
-                x_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, y=y)
+                x_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, y_prev=y_prev, y_hat_prev=y_hat_prev)
             if self.num_directions == 2:
                 idx = n * self.num_directions + 1
                 if cs is not None:
-                    x_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1, y=y)
+                    x_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1)
                 else:
-                    x_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1, y=y)
+                    x_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1)
 
                 x = torch.cat((x_fw, x_bw), dim=2)
             else:

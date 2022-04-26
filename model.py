@@ -75,16 +75,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         print(f"FPN produces {n_features} different Features")
 
         self.out_features = 6 if self.predict_em else 2
-
+        
         if self.mode == 'LSTM':
+            if n_teacher_vals > 0:
+                n_features_lstm = n_features + n_teacher_vals * self.out_features
             self.lstm = torch.nn.LSTM(input_size=n_features, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
-            multihead_attn = torch.nn.MultiheadAttention(rim_hidden_size*rim_num_units, out_attn_heads, device=device)
-
-            # here comes the hack, because MultiheadAttention maps to embed_dim
-            factory_kwargs = {'device': multihead_attn.in_proj_weight.device, 'dtype':  multihead_attn.in_proj_weight.dtype}
-            multihead_attn.out_proj = torch.nn.modules.linear.NonDynamicallyQuantizableLinear(rim_hidden_size*rim_num_units, self.out_features, bias=multihead_attn.in_proj_bias is not None, **factory_kwargs)
-
             self.rim = RIM(
                 device=device,
                 input_size=n_features,
@@ -94,7 +90,6 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
                 bidirectional=False,
-                output_layer=multihead_attn,
                 num_input_heads=input_attn_heads,
                 input_dropout=input_dropout,
                 comm_dropout=comm_dropout,
@@ -191,14 +186,50 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         out_channels = x.shape[2]
         x = torch.swapaxes(x, 0, 1)         # RIM expects tensor of shape (seq, B, features)
 
+        # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
+        xs = list(torch.split(x, 1, dim = 0))
+        outputs = []
+        output = None
+
         if self.mode == 'LSTM':
-            x, (h, c) = self.lstm(x[:, :, 0, :])
-            out, attn_weights = self.multihead_attn(x, x, x)
-            out = torch.tanh(out)
+            h = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
+            c = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
         else:
-            if y is not None:
-                y = torch.swapaxes(y, 0, 1)
-            out, h, c = self.rim(x, y=y)
+            h, c = None, None
+        for i, x in enumerate(xs):
+            if self.mode == 'LSTM':
+                # If teacher forcing activated, extend features with possible teacher values
+                if self.n_teacher_vals > 0:
+                    x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+
+                    if i != 0:
+                        # Add output of previous iteration to input features of next iteration
+                        output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
+                        x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
+
+                        if y is not None:
+                            y_prev = y[:, i-1, :]
+
+                            # Repeat label values n_teacher_vals times
+                            y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
+
+                            # Create random mask over batch
+                            random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
+                            # Add ground truth for random mask to input features of next iteration
+                            x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
+                
+                x, (h, c) = self.lstm(x[:, :, 0, :], (h, c))
+            else:
+                y_prev = None
+                if y is not None and i != 0:
+                    y_prev = y[:, i-1, :].unsqueeze(0)
+                x, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+            output, attn_output_weights = self.multihead_attn(x, x, x)
+            output = torch.tanh(output)
+            outputs.append(output)
+        out = torch.cat(outputs, dim = 0)
+
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
 
@@ -360,7 +391,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
 
-    summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
+    #summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
 
     if only_tune:
         # Find maximum batch size that fits into memory
