@@ -75,10 +75,10 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         print(f"FPN produces {n_features} different Features")
 
         self.out_features = 6 if self.predict_em else 2
-        if n_teacher_vals > 0:
-            n_features += n_teacher_vals * self.out_features
-
+        
         if self.mode == 'LSTM':
+            if n_teacher_vals > 0:
+                n_features_lstm = n_features + n_teacher_vals * self.out_features
             self.lstm = torch.nn.LSTM(input_size=n_features, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
             self.rim = RIM(
@@ -92,11 +92,14 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 bidirectional=False,
                 num_input_heads=input_attn_heads,
                 input_dropout=input_dropout,
-                comm_dropout=comm_dropout
+                comm_dropout=comm_dropout,
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
                 #comm_value_size=100
+                p_teacher_forcing = p_teacher_forcing,
+                n_teacher_vals = n_teacher_vals,
+                out_features=self.out_features
             )
 
         # Dry run to get input size for end layer
@@ -186,6 +189,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
         xs = list(torch.split(x, 1, dim = 0))
         outputs = []
+        output = None
 
         if self.mode == 'LSTM':
             h = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
@@ -193,32 +197,37 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         else:
             h, c = None, None
         for i, x in enumerate(xs):
-            # If teacher forcing activated, extend features with possible teacher values
-            if self.n_teacher_vals > 0:
-                x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
-
-                if i != 0:
-                    # Add output of previous iteration to input features of next iteration
-                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
-                    x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
-
-                    if y is not None:
-                        y_prev = y[:, i-1, :]
-
-                        # Repeat label values n_teacher_vals times
-                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
-
-                        # Create random mask over batch
-                        random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
-
-                        # Add ground truth for random mask to input features of next iteration
-                        x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
             if self.mode == 'LSTM':
+                # If teacher forcing activated, extend features with possible teacher values
+                if self.n_teacher_vals > 0:
+                    x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+
+                    if i != 0:
+                        # Add output of previous iteration to input features of next iteration
+                        output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
+                        x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
+
+                        if y is not None:
+                            y_prev = y[:, i-1, :]
+
+                            # Repeat label values n_teacher_vals times
+                            y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
+
+                            # Create random mask over batch
+                            random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
+                            # Add ground truth for random mask to input features of next iteration
+                            x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
+                
                 x, (h, c) = self.lstm(x[:, :, 0, :], (h, c))
             else:
-                x, h, c = self.rim(x, h=h, c=c)
+                y_prev = None
+                if y is not None and i != 0:
+                    y_prev = y[:, i-1, :].unsqueeze(0)
+                x, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
             output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(torch.tanh(output))
+            output = torch.tanh(output)
+            outputs.append(output)
         out = torch.cat(outputs, dim = 0)
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
@@ -382,7 +391,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                                       clip_duration=clip_duration, num_workers=num_workers)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
 
-    summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
+    #summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
 
     if only_tune:
         # Find maximum batch size that fits into memory

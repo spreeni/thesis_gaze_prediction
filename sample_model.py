@@ -15,15 +15,15 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_346"
+_OUTPUT_DIR = r"data/sample_outputs/version_372"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
-#DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
 #_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
-
-_CHECKPOINT_PATH = r'data/lightning_logs/version_346/checkpoints/epoch=100-step=100.ckpt'
+_MODE += '_golf'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_372/checkpoints/epoch=200-step=200.ckpt'
 
 _SCALE_UP = True
 _SHOW_SALIENCY = True
@@ -35,10 +35,10 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 dataset = gaze_labeled_video_dataset(
     data_path=_DATA_PATH,
-    #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
-    #video_sampler=torch.utils.data.SequentialSampler,
-    clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
-    video_sampler=torch.utils.data.RandomSampler,
+    clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
+    video_sampler=torch.utils.data.SequentialSampler,
+    #clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
+    #video_sampler=torch.utils.data.RandomSampler,
     transform=VAL_TRANSFORM,
     #transform=None,
     video_file_suffix=_VIDEO_SUFFIX,
@@ -54,18 +54,25 @@ model = GazePredictionLightningModule(lr=1e-6, batch_size=16, frames=round(_CLIP
                                                         fpn_only_use_last_layer=True,
                                                         rim_hidden_size=400,
                                                         rim_num_units=6, rim_k=4, rnn_cell='LSTM',
-                                                        rim_layers=1, attention_heads=2,
-                                                        p_teacher_forcing=0.3, n_teacher_vals=50,
+                                                        rim_layers=1, out_attn_heads=2,
+                                                        p_teacher_forcing=0.3, n_teacher_vals=0,
                                                         weight_init='xavier_normal', mode='RIM', loss_fn='mse_loss',
-                                                        lambda_reg_fix=6., lambda_reg_sacc=0.1, channel_wise_attention=False)
+                                                        lambda_reg_fix=6., lambda_reg_sacc=0.1, input_attn_heads=3, 
+                                                        input_dropout=0.2, comm_dropout=0.2, channel_wise_attention=False)
 """
 em_encoder = OneHotEncoder()
 em_encoder.fit([[i] for i in range(4)])
 
 samples_per_clip = 5
-samples = 4
+samples = 2
+#for i, (video_name, observer, clip_start) in enumerate([
+#    ('golf', 'AAW', 5.),
+#    ('golf', 'AAW', 10.)
+#]):
+#    sample = dataset.get_clip(video_name, observer, clip_start=clip_start)
 for i in range(0, samples):
-    sample = next(dataset)
+    #sample = next(dataset)
+    sample = dataset.get_clip('golf', 'AAW', clip_start=5. + i * _CLIP_DURATION)
 
     video_name = sample['video_name']
     observer = sample['observer']
