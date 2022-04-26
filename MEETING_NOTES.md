@@ -466,3 +466,74 @@
     - Flowchart für Modell anfertigen
         - Mit Flags, Hyperparametern
         - Einmal alle Baustellen visualisieren
+- 13.04.22
+    - Fortschritts-Update:
+        - NSS in model sampling eingebaut
+            - mit Vergleich zu NSS von originalem Clip und Mitt-NSS
+            - NSS für loss benutzen? Hat allerdings Target-Information, müsste in torch implementiert werden und ist computationally expensive
+        - Dropout getestet
+            - generell aktiv, jedes Mal andere Scanpaths für gleichen Input
+        - Auf allen Videos + Observers trainiert mit gaze changes und Aktivierungsfunktion x³
+            - Resultiert in mittigem Noise
+            - Ich glaube gaze change ist im Moment eine Sackgasse
+        - Thesis-Template weiter gestaltet/strukturiert
+        - Paper gelesen für grundsätzlichere Ansätze
+            - NSS als Loss?
+            - Fixation-Klassifikation über Pixel?
+            - Anderen Backbone für Feature Extractor?
+    - Möglicherweise Mixture of Gaussians als Output (äquivalent zu NSS als Loss)
+        - Nico: Mixture of Gaussians erstmal nicht Priorität
+        - Gaussian kann problematisch an Bildrändern sein
+    - Alle videos + 1 observer einmal ausprobieren
+        - Wenn es nicht funktioniert → Feature Extraction nicht gut genug
+    - längere Clip-sizes ausprobieren
+        - einmal auf ganzen 20s videos trainieren
+    - Mehrere predictions auf gleichem Input vergleichen
+        - NSS-average berechnen
+        - Alle plotten / Scanpaths vergleichen
+        - Gaussian smoothing als saliency map
+            - im Vergleich mit NSS-Map plotten
+    - Nächste Woche ein paar Plots zeigen
+    - Scanpath-Output vergleichen zwischen trainiert/untrainiert
+    - Möglicherweise Vortrag über den aktuellen Stand für Prof. Obermayer vorbereiten
+    - Nico: Wichtig immer wieder Ergebnisse/Probleme zu sammeln
+- 21.04.22
+    - Fortschritts-Update:
+        - Auf allen Videos + 1 Observer trainiert
+            - Ähnlicher Loss wie bei 1 Video + 1 Observer, Output orientiert sich allerdings nicht merklich an Features
+            - Kein Unterschied für größeres Modell
+        - Einmal mit p_teacher_forcing=1 trainiert
+            - train_loss wird nicht null
+        - Bei >12s kommt Fehler “too many open files” wegen offenen Frames
+            - Neuer Dataloader, welcher Videos direkt ins Memory lädt?
+        - Mehrere scanpaths pro video clip gesampelt
+            - Mean NSS als Metrik
+            - Plotten aller Scanpaths
+                - Sind sehr nah beieinander → mehr seeding benötigt? (höherer dropout?)
+        - Gaussian density von Observer-Daten animiert
+    - Samplen von custom Clips in Dataloader einbauen, damit interpretierbare Clips entnommen werden
+    - Predictions sind sehr mittig, achten wenig auf Features
+        1. Option: Changes vorhersagen
+            1. Problem loss - Cumsum loss verwenden
+        2. Option: Mehrere Gaussians als Output
+            1. p_cluster (Softmax)/mean/std
+            2. Problem Sprünge (durch Teacher Forcing/Recurrence?)
+            3. Auf allen Observern trainieren
+    - Predictions randomisieren nicht vernünftig
+        - Probablistischer Output
+        - Mixture of Gaussians
+    - Teacher Forcing erst nach Input attention anwenden
+        - Problematisch für Aktivierung und Dropout
+    - Input attention visualisieren
+        - Nimmt das Netz Features wahr?
+    - Idee Nico: Einzelne RIMs besonders bevorzugt behandeln
+        - Bringt möglicherweise Zufälligkeit
+        - Eine RIM, welche nur für Sakkaden aktiviert wird
+    - Mögliche Anpassung: k aktive RIMs aus attention_probs samplen, anstatt topk zu wählen
+        - Vielleicht flexible Anzahl RIMs aktivieren (ziehen mit zurücklegen)
+    - Mögliche Anpassung: Softmax temperature parameter einbauen
+        - Je höher, desto extremer
+    - Scanpaths sind zu Beginn verstreut, konvergieren dann (auch auf untrainiertem Modell)
+        - Etwas schnelles einbauen, auf kleinerem Datenset bzw. Änderungen einfach auf untrainiertem Modell ausprobieren
+        - Woran liegt dies? Untrainiert sollten Scanpaths unabhängig voneinander sein
+    - Saliency Map über Video legen, um zu sehen, worauf Observer achten

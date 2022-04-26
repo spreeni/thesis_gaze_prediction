@@ -86,7 +86,11 @@ def plot_frames_with_labels(
         save_to_directory=None
 ):
     """
-    Visualizes video frames with bounding boxes for gaze labels
+    Visualizes video frames with bounding boxes for gaze labels.
+
+    Can be used to plot averaged gaze data per frame together with raw gaze data.
+
+    Note: Can also be used to plot gaze data with multiple predictions - then set groundtruth as average gaze data and predicted as raw gaze data.
 
     Args:
         frames:             Frames as array of shape (n_frames, height, width, channels)
@@ -106,7 +110,10 @@ def plot_frames_with_labels(
         assert len(avg_gaze_locations) == len(
             avg_em_data), f"Number of gaze locations and eye data classification labels needs to be the same: {len(avg_gaze_locations)} != {len(avg_em_data)}."
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
+    fig = plt.figure(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
+    ax = plt.Axes(fig, [0., -0.05, 1., 1.])
+    ax.set_axis_off()
+    fig.add_axes(ax)
     for i_frame in range(min(num_frames, len(avg_gaze_locations))):
         frame = frames[i_frame]
         avg_gaze = avg_gaze_locations[i_frame]
@@ -118,7 +125,7 @@ def plot_frames_with_labels(
         # Plot averaged label
         color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
         avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
-                                          linewidth=1.4, edgecolor=color, facecolor=color)
+                                          linewidth=1.4, edgecolor='black', facecolor=color)
         ax.add_patch(avg_label_box)
 
         # Plot raw labels
@@ -127,9 +134,12 @@ def plot_frames_with_labels(
             assert num_frames == len(
                 gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
             for i, gaze in enumerate(gaze_locations[i_frame]):
-                color = EM_COLOR_MAP[em_data[i_frame][i]] if em_data is not None else 'r'
+                if em_data is not None:
+                    color = EM_COLOR_MAP[em_data[i_frame][i]]
+                else:
+                    color = plt.get_cmap('tab10').colors[i]
                 label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.5, edgecolor=color, facecolor=color)#'none')
+                                              linewidth=0.8, edgecolor='black', facecolor=color)#'none')
                 ax.add_patch(label_box)
 
         # Update title
