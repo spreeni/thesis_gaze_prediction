@@ -228,7 +228,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 x, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
             output, attn_output_weights = self.multihead_attn(x, x, x)
             if self.predict_change:
-                outputs.append(output.pow(3))
+                #outputs.append(output.pow(3))
+                outputs.append(output)
             else:
                 outputs.append(torch.tanh(output))
 
