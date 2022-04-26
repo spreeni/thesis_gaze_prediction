@@ -125,7 +125,7 @@ def plot_frames_with_labels(
         # Plot averaged label
         color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
         avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
-                                          linewidth=1.4, edgecolor=color, facecolor=color)
+                                          linewidth=1.4, edgecolor='black', facecolor=color)
         ax.add_patch(avg_label_box)
 
         # Plot raw labels
@@ -139,7 +139,7 @@ def plot_frames_with_labels(
                 else:
                     color = plt.get_cmap('tab10').colors[i]
                 label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.5, edgecolor=color, facecolor=color)#'none')
+                                              linewidth=0.8, edgecolor='black', facecolor=color)#'none')
                 ax.add_patch(label_box)
 
         # Update title
