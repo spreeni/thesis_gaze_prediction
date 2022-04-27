@@ -249,7 +249,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if not self.predict_change:
             loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
         else:
-            gaze_pos = torch.tanh(y_hat[:, :, :2].cumsum(axis=0))
+            gaze_pos = torch.tanh(y_hat[:, :, :2].cumsum(dim=1))
             loss = loss_fn(gaze_pos[not_noise], batch['frame_labels'][not_noise])
 
         # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
