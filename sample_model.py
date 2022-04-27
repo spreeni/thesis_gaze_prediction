@@ -47,7 +47,7 @@ dataset = gaze_labeled_video_dataset(
     video_file_suffix=_VIDEO_SUFFIX,
     decode_audio=False,
     decoder="pyav",
-    predict_change=_CHANGE_DATA
+    predict_change=False
 )
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
@@ -99,7 +99,7 @@ for i in range(0, samples):
     print(f"Frames {frame_indices[0]}-{frame_indices[-1]}")
 
     if _CHANGE_DATA:
-        y_hat = np.tanh(y_hat.cumsum(axis=0))
+        y_hats = [np.tanh(y_hat.cumsum(axis=0)) for y_hat in y_hats]
         y = np.tanh(y.cumsum(axis=0))
 
     print("y_hat.shape", y_hats[0].shape)
