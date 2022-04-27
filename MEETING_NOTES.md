@@ -497,7 +497,7 @@
     - Scanpath-Output vergleichen zwischen trainiert/untrainiert
     - Möglicherweise Vortrag über den aktuellen Stand für Prof. Obermayer vorbereiten
     - Nico: Wichtig immer wieder Ergebnisse/Probleme zu sammeln
-- 21.04.22
+- 20.04.22
     - Fortschritts-Update:
         - Auf allen Videos + 1 Observer trainiert
             - Ähnlicher Loss wie bei 1 Video + 1 Observer, Output orientiert sich allerdings nicht merklich an Features
@@ -537,3 +537,28 @@
         - Etwas schnelles einbauen, auf kleinerem Datenset bzw. Änderungen einfach auf untrainiertem Modell ausprobieren
         - Woran liegt dies? Untrainiert sollten Scanpaths unabhängig voneinander sein
     - Saliency Map über Video legen, um zu sehen, worauf Observer achten
+- 27.04
+    - Fortschritts-Update:
+        - Overlay von gaussian density über video samples implementiert
+        - Sampling von spezifischen Clips implementiert
+        - Testen ob untrainierte RIM gegen gemeinsamen Wert (und null) für gleichen Input konvergiert
+            - Startpunkt ist random, nach 2-3 Zeitschritten random im Bereich [-0.1, 0.1], wie bei LSTM
+        - Teacher Forcing in RIM nach Input Attention eingebaut
+            - allerdings keine Verbesserung im Training
+        - Lange (200 Epochen) trainiert auf allen Videos/1 observer
+            - Funktioniert gut auf Trainingsdaten, nicht wirklich auf Validation-Set
+                - Generalisierung funktioniert nicht
+            - l1_loss liefert keine guten Ergebnisse
+    - RIM ohne Dropout generiert verschiedene Traces
+        - hidden state bei Initialisierung setzen, nicht im Forward pass
+    - Möglicherweise Positional Encoding als sin-Überlagerung einbauen
+        - Nico: Vielleicht erst etwas Stabiles schaffen, bevor neue Baustellen aufgemacht werden
+    - Aktive RIMs und Input Attention visualisieren
+    - Vorschlag Nico: n=2, k=1 ausprobieren
+        - Korrelation Fixation/Sakkade mit RIMs überprüfen
+    - Falls Zeit es hergibt, Gaussian Mixture output implementieren, da gaze change prediction nicht vielversprechend scheint
+    - Masterarbeit anfangen zu schreiben / Struktur mit Figures grob erstellen
+        - Dann können Nico/Heiner rübergucken und Sachen frühzeitig korrigiert werden
+    - Prof. Obermayer über die Arbeit rübergucken lassen
+        - Kurze Präsentation anfertigen (sehr exakt sein!)
+    - Verteidigung möglicherweise am 01.07.22, 2 Wochen nach Abgabe
