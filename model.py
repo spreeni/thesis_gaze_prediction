@@ -79,7 +79,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if self.mode == 'LSTM':
             if n_teacher_vals > 0:
                 n_features_lstm = n_features + n_teacher_vals * self.out_features
-            self.lstm = torch.nn.LSTM(input_size=n_features, hidden_size=rim_hidden_size, device=device, bidirectional=False)
+            self.lstm = torch.nn.LSTM(input_size=n_features_lstm, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
             self.rim = RIM(
                 device=device,
@@ -106,7 +106,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         inp = torch.randn(frames, self.batch_size, 1 if not self.channel_wise_attention else out_channels, n_features, device=device)
         with torch.no_grad():
             if self.mode == 'LSTM':
-                inp = inp.reshape(frames, self.batch_size, n_features)
+                inp = torch.randn(frames, self.batch_size, n_features_lstm, device=device)
                 out, _ = self.lstm(inp)
             else:
                 out, _, _ = self.rim(inp)
