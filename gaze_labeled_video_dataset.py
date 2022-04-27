@@ -169,16 +169,16 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         max_h, max_w = frames.shape[-2:]
         frame_labels[:, 0] = torch.clamp(frame_labels[:, 0], min=0, max=max_h - 1)
         frame_labels[:, 1] = torch.clamp(frame_labels[:, 1], min=0, max=max_w - 1)
-
-        if not self._predict_change:
-            frame_labels = (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
-        else:
+        
+        if self._predict_change:
             # Padding to avoid -1 and 1 in arctanh
-            frame_labels = ((frame_labels + 1) / torch.tensor([(max_h + 2) / 2., (max_w + 2) / 2.])) - 1.
+            frame_labels_change = ((frame_labels + 1) / torch.tensor([(max_h + 2) / 2., (max_w + 2) / 2.])) - 1.
 
             # Use arctanh/tanh conversion to stay within image bounds
-            frame_labels = torch.atanh(frame_labels)
-            frame_labels[1:, :] -= torch.roll(frame_labels, 1, dims=0)[1:, :]
+            frame_labels_change = torch.atanh(frame_labels_change)
+            frame_labels_change[1:, :] -= torch.roll(frame_labels_change, 1, dims=0)[1:, :]
+
+        frame_labels = (frame_labels / torch.tensor([max_h / 2., max_w / 2.])) - 1.
 
         # One-hot encode eye movement class labels to vector of [NOISE, FIXATION, SACCADE, SMOOTH PURSUIT]
         if loaded_em_data:
@@ -194,6 +194,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
             "frame_labels": frame_labels,
             "frame_indices": frame_indices,
             **({"em_data": em_data} if em_data is not None else {}),
+            **({"frame_labels_change": frame_labels_change} if self._predict_change else {}),
             **({"audio": audio_samples} if audio_samples is not None else {}),
         }
 

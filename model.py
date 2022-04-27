@@ -251,6 +251,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         else:
             gaze_pos = torch.tanh(y_hat[:, :, :2].cumsum(dim=1))
             loss = loss_fn(gaze_pos[not_noise], batch['frame_labels'][not_noise])
+            loss += loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels_change'][not_noise])
 
         # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
         # First timepoint is ignored as it does not have a previous comparison
@@ -346,9 +347,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         else:
             y_hat = self.forward(batch["video"], y=y)
 
-        if self.global_step % 10 == 0:
-            print("y_hat:\n", y_hat[0, :, :2])
-            print("y:\n", batch['frame_labels'][0])
+        if self.global_step % 5 == 0:
+            print("y_hat:\n", y_hat[0, :10, :2])
+            if self.predict_change:
+                print("y (change):\n", batch['frame_labels_change'][0, :10])
+                print("y_hat (summed):\n", torch.tanh(y_hat[0, :10, :2].cumsum(dim=1)))
+            print("y:\n", batch['frame_labels'][0, :10])
+
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
         # TODO: Implement specialized loss
