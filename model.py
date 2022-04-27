@@ -77,8 +77,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.out_features = 6 if self.predict_em else 2
         
         if self.mode == 'LSTM':
+            n_features_lstm = n_features
             if n_teacher_vals > 0:
-                n_features_lstm = n_features + n_teacher_vals * self.out_features
+                n_features_lstm += n_teacher_vals * self.out_features
             self.lstm = torch.nn.LSTM(input_size=n_features_lstm, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
             self.rim = RIM(
