@@ -56,7 +56,7 @@ def log_tensor_as_image(model, frame, name, interpolate_range=True, dataformats=
 
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
-                 fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
+                 backbone_model, fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
                  rnn_cell, rim_layers, out_attn_heads, p_teacher_forcing, n_teacher_vals,
                  weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc, input_attn_heads,
                  input_dropout, comm_dropout, channel_wise_attention):
@@ -78,7 +78,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
-        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model='mobilenetv3_large_100')
+        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model=backbone_model)
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
                        separate_channels=self.channel_wise_attention, only_use_last_layer=fpn_only_use_last_layer)
 
@@ -379,8 +379,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
-                rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                lr=1e-6, only_tune: bool = False, predict_em=True, backbone_model='mobilenetv3_large_100',
+                fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
                 out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
                 lambda_reg_fix=6., lambda_reg_sacc=0.1, input_attn_heads=3, input_dropout=0.2,
@@ -393,7 +393,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
     else:
         regression_module = GazePredictionLightningModule(lr=lr, batch_size=batch_size, frames=round(clip_duration * 29.97),
                                                         input_dims=(224, 224), out_channels=out_channels,
-                                                        predict_em=predict_em,
+                                                        predict_em=predict_em, backbone_model=backbone_model,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
