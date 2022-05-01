@@ -22,7 +22,7 @@ class FeatureExtractor(torch.nn.Module):
         if model == 'mobilenetv3_large_100':
             m = timm.create_model('mobilenetv3_large_100', pretrained=True)
         elif model == 'efficientnet_b0':
-            m = models.efficientnet_b0()
+            m = models.efficientnet_b0(pretrained=True)
         else:
             raise f"Unknown model name '{model}' given to FeatureExtractor"
 
@@ -32,9 +32,9 @@ class FeatureExtractor(torch.nn.Module):
 
         # Extract features after each main layer
         if model == 'mobilenetv3_large_100':
-            return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)}
+            return_nodes = {f'blocks.{i}': str(i) for i in range(1, 7)}
         elif model == 'efficientnet_b0':
-            return_nodes={f'features.{i}': str(i) for i in range(1, 8)}
+            return_nodes = {f'features.{i}': str(i) for i in range(1, 8)}
         self.body = create_feature_extractor(
             m, return_nodes=return_nodes).to(device=self.device)
 
