@@ -377,13 +377,13 @@ class RIM(nn.Module):
         """
 
         hs = torch.split(h, 1, 0) if h is not None else torch.split(
-            torch.randn(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
+            torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                 self.device), 1, 0)
         hs = list(hs)
         cs = None
         if self.rnn_cell == 'LSTM':
             cs = torch.split(c, 1, 0) if c is not None else torch.split(
-                torch.randn(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
+                torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                     self.device), 1, 0)
             cs = list(cs)
         for n in range(self.n_layers):
