@@ -39,6 +39,21 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
         fps=fps)
 
 
+def log_tensor_as_image(model, frame, name, interpolate_range=True, dataformats='CHW'):
+    """
+    Adds tensor as image to tensorboard logs.
+
+    Expects frame in shape (C, H, W) or (H, W) for one-channel tensors.
+    """
+    if interpolate_range:
+        frame = np.interp(frame, (frame.min(), frame.max()), (0, 255)).astype('uint8')
+    
+    model.trainer.logger.experiment.add_image(
+        tag=f"{name}_epoch_{model.global_step}",
+        img_tensor=frame,
+        dataformats=dataformats)
+
+
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
