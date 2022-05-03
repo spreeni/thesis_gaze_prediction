@@ -24,6 +24,8 @@ class FeatureExtractor(torch.nn.Module):
             m = timm.create_model('mobilenetv3_large_100', pretrained=True)
         elif model == 'mobilenet_v3_large':
             m = models.mobilenet_v3_large(pretrained=True)
+        elif model == 'mobilenet_v3_small':
+            m = models.mobilenet_v3_small(pretrained=True)
         elif model == 'efficientnet_b0':
             m = models.efficientnet_b0(pretrained=True)
         elif model == 'efficientnet_b7':
@@ -47,6 +49,8 @@ class FeatureExtractor(torch.nn.Module):
             # return_nodes = {f'blocks.{i}': str(i) for i in [0, 1, 2, 4, 6]}
         elif model == 'mobilenet_v3_large':
             return_nodes = {f'features.{i}': str(i) for i in [1, 3, 6, 12, 16]}
+        elif model == 'mobilenet_v3_small':
+            return_nodes = {f'features.{i}': str(i) for i in [0, 1, 3, 8, 11]}
         elif model.startswith('efficientnet_'):
             return_nodes = {f'features.{i}': str(i) for i in [1, 2, 3, 5, 7]}
         elif model == 'densenet201':
