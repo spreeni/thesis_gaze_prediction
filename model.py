@@ -387,7 +387,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=True, backbone_model='mobilenetv3_large_100',
+                lr=1e-6, only_tune: bool = False, predict_em=True, backbone_model='mobilenet_v3_large',
                 fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
                 out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',

@@ -15,7 +15,7 @@ class FeatureExtractor(torch.nn.Module):
         extractor = FeatureExtractor(input_dim, batch_size)
         features = extractor(inp)
     """
-    def __init__(self, device, input_dim=(224, 224), batch_size=4, model='mobilenetv3_large_100'):
+    def __init__(self, device, input_dim=(224, 224), batch_size=4, model='mobilenet_v3_large', lower_resolution=True):
         super().__init__()
         self.device = device
 
@@ -45,8 +45,8 @@ class FeatureExtractor(torch.nn.Module):
 
         # Extract features before each downsampling step
         if model == 'mobilenetv3_large_100':
-            return_nodes = {f'blocks.{i}': str(i) for i in range(1, 7)}
-            # return_nodes = {f'blocks.{i}': str(i) for i in [0, 1, 2, 4, 6]}
+            #return_nodes = {f'blocks.{i}': str(i) for i in range(1, 7)}
+            return_nodes = {f'blocks.{i}': str(i) for i in [0, 1, 2, 4, 6]}
         elif model == 'mobilenet_v3_large':
             return_nodes = {f'features.{i}': str(i) for i in [1, 3, 6, 12, 16]}
         elif model == 'mobilenet_v3_small':
@@ -59,6 +59,10 @@ class FeatureExtractor(torch.nn.Module):
             return_nodes = {f'features.{i}': str(i) for i in [8, 17, 26, 35]}
         elif model == 'resnet152':
             return_nodes = {'relu': '0', **{f'layer{i}': str(i) for i in range(1, 5)}}
+
+        if lower_resolution:
+            # pop first element to chose 51x51 as resolution to decrease memory need 
+            return_nodes.pop(list(return_nodes.keys())[0])
         self.body = create_feature_extractor(
             m, return_nodes=return_nodes).to(device=self.device)
 
