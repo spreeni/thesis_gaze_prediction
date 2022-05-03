@@ -123,9 +123,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         with torch.no_grad():
             if self.mode == 'LSTM':
                 inp = torch.randn(frames, self.batch_size, n_features_lstm, device=device)
-                out, _ = self.lstm(inp)
+                out = self.lstm(inp)[0]
             else:
-                out, _, _ = self.rim(inp)
+                out = self.rim(inp)[0]
             
         embed_dim = out.shape[-1]
 
@@ -205,6 +205,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
         xs = list(torch.split(x, 1, dim = 0))
         outputs = []
+        rim_activations = []
         output = None
 
         if self.mode == 'LSTM':
@@ -240,11 +241,18 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 y_prev = None
                 if y is not None and i != 0:
                     y_prev = y[:, i-1, :].unsqueeze(0)
-                x, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                x, mask, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                rim_activations.append(mask)
             output, attn_output_weights = self.multihead_attn(x, x, x)
             output = torch.tanh(output)
             outputs.append(output)
         out = torch.cat(outputs, dim = 0)
+
+        # Log RIM unit activations
+        if self.mode != 'LSTM' and log_features:
+            rim_activations = torch.cat(rim_activations, dim=0).swapaxes(0, 1)
+            for i in range(batch_size):
+                log_tensor_as_image(self, rim_activations[i].T, f"rim_activations{i}", interpolate_range=False, dataformats='HW')
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
