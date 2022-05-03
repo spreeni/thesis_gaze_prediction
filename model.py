@@ -39,9 +39,24 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
         fps=fps)
 
 
+def log_tensor_as_image(model, frame, name, interpolate_range=True, dataformats='CHW'):
+    """
+    Adds tensor as image to tensorboard logs.
+
+    Expects frame in shape (C, H, W) or (H, W) for one-channel tensors.
+    """
+    if interpolate_range:
+        frame = np.interp(frame, (frame.min(), frame.max()), (0, 255)).astype('uint8')
+    
+    model.trainer.logger.experiment.add_image(
+        tag=f"{name}_epoch_{model.global_step}",
+        img_tensor=frame,
+        dataformats=dataformats)
+
+
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
-                 fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
+                 backbone_model, fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
                  rnn_cell, rim_layers, out_attn_heads, p_teacher_forcing, n_teacher_vals,
                  weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc, input_attn_heads,
                  input_dropout, comm_dropout, channel_wise_attention, predict_change):
@@ -64,7 +79,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
-        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model='mobilenetv3_large_100')
+        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model=backbone_model)
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
                        separate_channels=self.channel_wise_attention, only_use_last_layer=fpn_only_use_last_layer)
 
@@ -109,9 +124,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         with torch.no_grad():
             if self.mode == 'LSTM':
                 inp = torch.randn(frames, self.batch_size, n_features_lstm, device=device)
-                out, _ = self.lstm(inp)
+                out = self.lstm(inp)[0]
             else:
-                out, _, _ = self.rim(inp)
+                out = self.rim(inp)[0]
             
         embed_dim = out.shape[-1]
 
@@ -191,6 +206,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
         xs = list(torch.split(x, 1, dim = 0))
         outputs = []
+        rim_activations = []
         output = None
 
         if self.mode == 'LSTM':
@@ -226,7 +242,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 y_prev = None
                 if y is not None and i != 0:
                     y_prev = y[:, i-1, :].unsqueeze(0)
-                x, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                x, mask, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                rim_activations.append(mask)
             output, attn_output_weights = self.multihead_attn(x, x, x)
             if self.predict_change:
                 #outputs.append(output.pow(3))
@@ -235,6 +252,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 outputs.append(torch.tanh(output))
 
         out = torch.cat(outputs, dim = 0)
+
+        # Log RIM unit activations
+        if self.mode != 'LSTM' and log_features:
+            rim_activations = torch.cat(rim_activations, dim=0).swapaxes(0, 1)
+            for i in range(batch_size):
+                log_tensor_as_image(self, rim_activations[i].T, f"rim_activations{i}", interpolate_range=False, dataformats='HW')
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
@@ -383,8 +406,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
-                rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
+                lr=1e-6, only_tune: bool = False, predict_em=True, backbone_model='mobilenet_v3_large',
+                fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
                 out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
                 lambda_reg_fix=0., lambda_reg_sacc=0., input_attn_heads=3, input_dropout=0.2,
@@ -398,7 +421,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
     else:
         regression_module = GazePredictionLightningModule(lr=lr, batch_size=batch_size, frames=round(clip_duration * 29.97),
                                                         input_dims=(224, 224), out_channels=out_channels,
-                                                        predict_em=predict_em,
+                                                        predict_em=predict_em, backbone_model=backbone_model,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,

@@ -285,8 +285,8 @@ class RIMCell(nn.Module):
                 cs (batch_size, num_units, hidden_size)
                 y_prev (1, batch_size, target_size)
                 y_hat_prev (1, batch_size, target_size)
-        Output: new hs, cs for LSTM
-                new hs for GRU
+        Output: new hs, cs, mask for LSTM
+                new hs, mask for GRU
         """
         null_size = list(x.size())
         if len(null_size) == 4:   # channels given separately
@@ -319,9 +319,9 @@ class RIMCell(nn.Module):
         hs = mask * h_new + (1 - mask) * h_old
         if cs is not None:
             cs = mask * cs + (1 - mask) * c_old
-            return hs, cs
+            return hs, cs, mask
 
-        return hs, None
+        return hs, None, mask
 
 
 class RIM(nn.Module):
@@ -354,16 +354,19 @@ class RIM(nn.Module):
         if c is not None:
             cs = c.squeeze(0).view(batch_size, self.num_units, -1)
         outputs = []
+        masks = []
         for x in xs:
             x = x.squeeze(0)
-            hs, cs = rim_layer(x.unsqueeze(1), hs, cs, y_prev=y_prev, y_hat_prev=y_hat_prev)
+            hs, cs, mask = rim_layer(x.unsqueeze(1), hs, cs, y_prev=y_prev, y_hat_prev=y_hat_prev)
             outputs.append(hs.view(1, batch_size, -1))
+            masks.append(mask.view(1, batch_size, -1))
         if direction == 1: outputs.reverse()
         outputs = torch.cat(outputs, dim=0)
+        masks = torch.cat(masks, dim=0)
         if c is not None:
-            return outputs, hs.view(batch_size, -1), cs.view(batch_size, -1)
+            return outputs, masks, hs.view(batch_size, -1), cs.view(batch_size, -1)
         else:
-            return outputs, hs.view(batch_size, -1)
+            return outputs, masks, hs.view(batch_size, -1)
 
     def forward(self, x, h=None, c=None, y_prev=None, y_hat_prev=None):
         """
@@ -372,38 +375,41 @@ class RIM(nn.Module):
                c (num_layers * num_directions, batch_size, hidden_size * num_units)
                y_prev (1, batch_size, target_size)
                y_hat_prev (1, batch_size, target_size)
-        Output: outputs (batch_size, seqlen, hidden_size * num_units * num-directions)
+        Output: outputs (batch_size, seqlen, hidden_size * num_units * num_directions)
+                mask (batch_size, seqlen, num_units * num_directions)
                 h(and c) (num_layer * num_directions, batch_size, hidden_size* num_units)
         """
 
         hs = torch.split(h, 1, 0) if h is not None else torch.split(
-            torch.randn(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
+            torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                 self.device), 1, 0)
         hs = list(hs)
         cs = None
         if self.rnn_cell == 'LSTM':
             cs = torch.split(c, 1, 0) if c is not None else torch.split(
-                torch.randn(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
+                torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                     self.device), 1, 0)
             cs = list(cs)
         for n in range(self.n_layers):
             idx = n * self.num_directions
             if cs is not None:
-                x_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], y_prev=y_prev, y_hat_prev=y_hat_prev)
+                x_fw, mask_fw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], y_prev=y_prev, y_hat_prev=y_hat_prev)
             else:
-                x_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, y_prev=y_prev, y_hat_prev=y_hat_prev)
+                x_fw, mask_fw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, y_prev=y_prev, y_hat_prev=y_hat_prev)
             if self.num_directions == 2:
                 idx = n * self.num_directions + 1
                 if cs is not None:
-                    x_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1)
+                    x_bw, mask_bw, hs[idx], cs[idx] = self.layer(self.rimcell[idx], x, hs[idx], cs[idx], direction=1)
                 else:
-                    x_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1)
+                    x_bw, mask_bw, hs[idx] = self.layer(self.rimcell[idx], x, hs[idx], c=None, direction=1)
 
                 x = torch.cat((x_fw, x_bw), dim=2)
+                mask = torch.cat((mask_fw, mask_bw), dim=2)
             else:
                 x = x_fw
+                mask = mask_fw
         hs = torch.stack(hs, dim=0)
         if cs is not None:
             cs = torch.stack(cs, dim=0)
-            return x, hs, cs
-        return x, hs
+            return x, mask, hs, cs
+        return x, mask, hs

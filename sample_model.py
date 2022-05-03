@@ -76,7 +76,8 @@ samples = 2
 #    sample = dataset.get_clip(video_name, observer, clip_start=clip_start)
 for i in range(0, samples):
     #sample = next(dataset)
-    sample = dataset.get_clip('golf', 'AAW', clip_start=5. + i * _CLIP_DURATION)
+    sample = dataset.get_clip('golf', 'AAW', clip_start=3. + i * _CLIP_DURATION)
+    #sample = dataset.get_clip('doves', 'AAW', clip_start=3. + i * _CLIP_DURATION)
 
     video_name = sample['video_name']
     observer = sample['observer']
