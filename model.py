@@ -79,7 +79,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Feature Pyramid Network for feature extraction
         self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model=backbone_model)
-        self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
+        self.fpn = FPN(device, self.backbone, out_channels=out_channels,
                        separate_channels=self.channel_wise_attention, only_use_last_layer=fpn_only_use_last_layer)
 
         # Dry run to get input size for RIM

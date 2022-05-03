@@ -80,26 +80,36 @@ class FPN(torch.nn.Module):
     """
     Top-down Feature Pyramid Network. Processes feature maps from different layers from a bottom-up process
 
-    in_channels can be given, but are constant for the Mobilenet v3 Large backbone
+    A backbone feature extractor needs to be passed.
 
     only_use_last_layer specifies if only the bottom-most layer features should be output or a concatenation of all
     resulting layer features
     """
-    def __init__(self, device, in_channels_list=None, out_channels=16, only_use_last_layer=False, separate_channels=True):
+    def __init__(self, device, backbone, out_channels=16, only_use_last_layer=False, separate_channels=True,
+                pos_encoding=True, input_dims=(224, 224)):
         super().__init__()
 
         # Build FPN
-        if in_channels_list is None:
-            in_channels_list = [24, 40, 80, 112, 160, 960]  # for 6 layers of mobilenetv3_large_100
+        self.backbone = backbone
         self.out_channels = out_channels
         self.only_use_last_layer = only_use_last_layer
         self.separate_channels = separate_channels
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list, out_channels=self.out_channels).to(device=device)
+            backbone.in_channels, out_channels=self.out_channels).to(device=device)
+        
+        self.pos_encoding = None
+        if pos_encoding:
+            x = torch.randn(1, 3, *input_dims)
+            x = self.fpn(backbone(x))
+            self.pos_encoding = {layer: torch.nn.Parameter(torch.randn(*x[layer].shape[-3:])).to(device=device) for layer in x}
 
     def forward(self, x, return_channels=False):
         x = self.fpn(x)
         ch_data = x.copy()
+        if self.pos_encoding is not None:
+            for layer in x:
+                x[layer] += self.pos_encoding[layer]
+                ch_data[layer] += self.pos_encoding[layer]
         flatten_start_d = 2 if self.separate_channels else 1
         if self.only_use_last_layer:  # Output last layer of FPN
             ch_data = {list(ch_data.keys())[0]: ch_data[list(ch_data.keys())[0]]}
