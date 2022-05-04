@@ -172,7 +172,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         
         if self._predict_change:
             # Padding to avoid -1 and 1 in arctanh
-            frame_labels_change = ((frame_labels + 1) / torch.tensor([(max_h + 2) / 2., (max_w + 2) / 2.])) - 1.
+            frame_labels_change = ((frame_labels + 1e-3) / torch.tensor([(max_h + 2e-3) / 2., (max_w + 2e-3) / 2.])) - 1.
 
             # Use arctanh/tanh conversion to stay within image bounds
             frame_labels_change = torch.atanh(frame_labels_change)

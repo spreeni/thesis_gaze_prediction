@@ -101,7 +101,7 @@ for i in range(0, samples):
 
     if _CHANGE_DATA:
         y_hats = [np.tanh(y_hat.cumsum(axis=0)) for y_hat in y_hats]
-        y = np.tanh(y.cumsum(axis=0))
+        #y = np.tanh(y.cumsum(axis=0))
 
     print("y_hat.shape", y_hats[0].shape)
     if y_hats[0].shape[1] > 2:
