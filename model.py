@@ -374,7 +374,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             print("y_hat:\n", y_hat[0, :10, :2])
             if self.predict_change:
                 print("y (change):\n", batch['frame_labels_change'][0, :10])
-                print("y_hat (summed):\n", torch.tanh(y_hat[0, :10, :2].cumsum(dim=1)))
+                print("y_hat (summed):\n", torch.tanh(y_hat[0, :10, :2].cumsum(dim=0)))
             print("y:\n", batch['frame_labels'][0, :10])
 
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
