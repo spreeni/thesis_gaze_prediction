@@ -101,16 +101,22 @@ class FPN(torch.nn.Module):
         if pos_encoding:
             x = torch.randn(1, 3, *input_dims)
             x = self.fpn(backbone(x))
-            self.pos_encoding = torch.nn.ParameterDict({
-                layer: torch.nn.Parameter(torch.randn(*x[layer].shape[-3:], device=device)) 
-                for layer in x
-            })
+            if self.only_use_last_layer:
+                last_layer = list(x.keys())[0]
+                self.pos_encoding = torch.nn.ParameterDict({
+                    last_layer: torch.nn.Parameter(torch.randn(*x[last_layer].shape[-3:], device=device)) 
+                })
+            else:
+                self.pos_encoding = torch.nn.ParameterDict({
+                    layer: torch.nn.Parameter(torch.randn(*x[layer].shape[-3:], device=device)) 
+                    for layer in x
+                })
 
     def forward(self, x, return_channels=False):
         x = self.fpn(x)
         ch_data = x.copy()
         if self.pos_encoding is not None:
-            for layer in x:
+            for layer in self.pos_encoding:
                 x[layer] += self.pos_encoding[layer]
                 ch_data[layer] += self.pos_encoding[layer]
         flatten_start_d = 2 if self.separate_channels else 1
