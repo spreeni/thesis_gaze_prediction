@@ -179,7 +179,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         x = torch.swapaxes(x, 1, 2)
         if log_features:
             for i in range(min(batch_size, 2)): #(N,T,C,H,W)
-                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids", fps=5, interpolate_range=True)
+                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids_{i}", fps=5, interpolate_range=True)
         
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
         x = x.reshape(batch_size * frames, 3, *input_dim)
@@ -189,10 +189,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if log_features:
             x, ch_data = self.fpn(x, return_channels=True)
             for key in ch_data:
-                key_data = ch_data[key].cpu().detach().numpy()
                 channels = ch_data[key].shape[1]
-                for ch in range(channels):
-                    log_tensor_as_video(self, key_data[:, ch, :, :], f"fpn_{key}_{ch}", fps=5, interpolate_range=True)
+                key_data = ch_data[key].reshape(
+                        batch_size, frames, channels, *ch_data[key].shape[-2:]
+                    ).cpu().detach().numpy()
+                for i in range(min(batch_size, 2)):
+                    for ch in range(channels):
+                        log_tensor_as_video(self, key_data[i, :, ch, :, :], f"fpn_{key}_{i}_ch{ch}", fps=5, interpolate_range=True)
         else:
             x = self.fpn(x)
 
