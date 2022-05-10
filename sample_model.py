@@ -16,16 +16,16 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_452"
+_OUTPUT_DIR = r"data/sample_outputs/version_471_single_clip"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
 #_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
 #_MODE += '_golf'
-_CHECKPOINT_PATH = r'data/lightning_logs/version_452_all_observers/checkpoints/epoch=27-step=1404.ckpt'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_471/checkpoints/epoch=101-step=101.ckpt'
 
 _CALC_NSS = True
 
@@ -37,18 +37,20 @@ _VIDEO_SUFFIX = ''
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-dataset = gaze_labeled_video_dataset(
-    data_path=_DATA_PATH,
-    #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
-    #video_sampler=torch.utils.data.SequentialSampler,
-    clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
-    video_sampler=torch.utils.data.RandomSampler,
-    transform=VAL_TRANSFORM,
-    #transform=None,
-    video_file_suffix=_VIDEO_SUFFIX,
-    decode_audio=False,
-    decoder="pyav",
-)
+def get_dataset():
+    return gaze_labeled_video_dataset(
+        data_path=_DATA_PATH,
+        #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
+        #video_sampler=torch.utils.data.SequentialSampler,
+        clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
+        video_sampler=torch.utils.data.RandomSampler,
+        transform=VAL_TRANSFORM,
+        #transform=None,
+        video_file_suffix=_VIDEO_SUFFIX,
+        decode_audio=False,
+        decoder="pyav",
+    )
+dataset = get_dataset()
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
 """
@@ -83,6 +85,7 @@ for i in range(0, samples):
         #sample = dataset.get_clip('golf', 'AAW', clip_start=3. + i * _CLIP_DURATION)
         #sample = dataset.get_clip('doves', 'AAW', clip_start=3. + i * _CLIP_DURATION)
     except Exception:
+        dataset = get_dataset()
         continue
 
     video_name = sample['video_name']
@@ -138,7 +141,7 @@ for i in range(0, samples):
     nss_rnd = metrics.score_gaussian_density(video_name, gaze_rnd, frame_ids=frame_indices)
     print("NSS original clip:", nss_orig)
     print("NSS prediction:", nss, "all scores:", nss_scores)
-    print("NSS middle baseline:", nss_mid, "\n")
+    print("NSS middle baseline:", nss_mid)
     print("NSS random baseline:", nss_rnd, "\n")
     
     if _CALC_NSS:
@@ -149,6 +152,10 @@ for i in range(0, samples):
     #y_hats = np.stack(y_hats, axis=1)
     if em_data_hats is not None:
         em_data_hats = np.stack(em_data_hats, axis=1)
+
+    save_dir = None if _OUTPUT_DIR is None else f'{_OUTPUT_DIR}/{i}'
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
 
     if _SHOW_SALIENCY:
         nss_calc = metrics.NSSCalculator()
@@ -170,10 +177,6 @@ for i in range(0, samples):
 
         color_overlay = (plt.cm.viridis(density) * 255)[:, :, :, :3]
         frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
-
-    save_dir = None if _OUTPUT_DIR is None else f'{_OUTPUT_DIR}/{i}'
-    if save_dir is not None:
-        os.makedirs(save_dir, exist_ok=True)
 
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
     utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=1800, remote_machine=True,
