@@ -158,8 +158,9 @@ for i in range(0, samples):
         frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
 
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
-    subprocess.call(f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate 10 -start_number 0 -i {i}/%03d.png -pix_fmt yuv420p {_MODE}_{i}.mp4", cwd=_OUTPUT_DIR, shell=True)
-    shutil.rmtree(save_dir)
+    utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=224, remote_machine=True,
+                                   delete_frames=True)
+
     with open(os.path.join(_OUTPUT_DIR, "metadata.txt"), "a") as f:
         f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}, nss (original, prediction, middle): ({nss_orig:.2f}, {nss:.2f}, {nss_mid:.2f})\n")
     #if _PLOT_RESULTS:
