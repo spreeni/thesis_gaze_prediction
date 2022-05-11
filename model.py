@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import pytorch_lightning
 from pytorch_lightning.callbacks import LearningRateMonitor
 from torchinfo import summary
+from sklearn.preprocessing import OneHotEncoder
 
 from RIM import RIM, RIMCell, GroupLinearLayer
 
@@ -75,6 +76,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.predict_change = predict_change
 
         self.mode = mode
+
+        self.em_encoder = OneHotEncoder()
+        self.em_encoder.fit([[i] for i in range(4)])
 
         self.save_hyperparameters()
 
@@ -175,12 +179,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.apply(weights_init_rnn)
         self.multihead_attn._reset_parameters()
 
-    def forward(self, x, y=None, log_features=False):
+    def forward(self, x, y=None, em_data=None, log_features=False):
         batch_size, ch, frames, *input_dim = x.shape
         x = torch.swapaxes(x, 1, 2)
         if log_features:
             for i in range(min(batch_size, 2)): #(N,T,C,H,W)
-                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids", fps=5, interpolate_range=True)
+                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids_{i}", fps=5, interpolate_range=True)
         
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
         x = x.reshape(batch_size * frames, 3, *input_dim)
@@ -190,10 +194,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if log_features:
             x, ch_data = self.fpn(x, return_channels=True)
             for key in ch_data:
-                key_data = ch_data[key].cpu().detach().numpy()
                 channels = ch_data[key].shape[1]
-                for ch in range(channels):
-                    log_tensor_as_video(self, key_data[:, ch, :, :], f"fpn_{key}_{ch}", fps=5, interpolate_range=True)
+                key_data = ch_data[key].reshape(
+                        batch_size, frames, channels, *ch_data[key].shape[-2:]
+                    ).cpu().detach().numpy()
+                for i in range(min(batch_size, 2)):
+                    for ch in range(channels):
+                        log_tensor_as_video(self, key_data[i, :, ch, :, :], f"fpn_{key}_{i}_ch{ch}", fps=5, interpolate_range=True)
         else:
             x = self.fpn(x)
 
@@ -255,6 +262,11 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Log RIM unit activations
         if self.mode != 'LSTM' and log_features:
+            if em_data is not None:
+                em_data = em_data.cpu().detach().numpy()
+                for i in range(batch_size):
+                    log_tensor_as_image(self, em_data[i].T, f"em_phases{i}", interpolate_range=False, dataformats='HW')
+
             rim_activations = torch.cat(rim_activations, dim=0).swapaxes(0, 1)
             for i in range(batch_size):
                 log_tensor_as_image(self, rim_activations[i].T, f"rim_activations{i}", interpolate_range=False, dataformats='HW')
@@ -364,9 +376,9 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         else:
             y = batch['frame_labels']
 
-        # Log features every 5th epoch
-        if self.global_step % 5 == 0 and LOG_DEBUG_INFO:
-            y_hat = self.forward(batch["video"], y=y, log_features=True)
+        # Log features every 20th step
+        if self.global_step % 20 == 0 and LOG_DEBUG_INFO:
+            y_hat = self.forward(batch["video"], y=y, em_data=batch['em_data'], log_features=True)
         else:
             y_hat = self.forward(batch["video"], y=y)
 
@@ -450,8 +462,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         tb_logger = pytorch_lightning.loggers.TensorBoardLogger("data/lightning_logs", name='')
         early_stop_callback = pytorch_lightning.callbacks.early_stopping.EarlyStopping(monitor='train_loss', min_delta=0.0005, patience=20, verbose=True, mode='min')
         lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
-        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=101, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
-                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback], gradient_clip_val=gradient_clip_val,
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=201, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
+                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[], gradient_clip_val=gradient_clip_val,
                                             gradient_clip_algorithm=gradient_clip_algorithm, stochastic_weight_avg=False)#, track_grad_norm=2)
 
         trainer.fit(regression_module, data_module)
@@ -461,6 +473,7 @@ if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/all_videos_single_observer'
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video_all_observers'
     #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
     #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'

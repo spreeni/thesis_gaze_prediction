@@ -537,7 +537,7 @@
         - Etwas schnelles einbauen, auf kleinerem Datenset bzw. Änderungen einfach auf untrainiertem Modell ausprobieren
         - Woran liegt dies? Untrainiert sollten Scanpaths unabhängig voneinander sein
     - Saliency Map über Video legen, um zu sehen, worauf Observer achten
-- 27.04
+- 27.04.22
     - Fortschritts-Update:
         - Overlay von gaussian density über video samples implementiert
         - Sampling von spezifischen Clips implementiert
@@ -562,3 +562,37 @@
     - Prof. Obermayer über die Arbeit rübergucken lassen
         - Kurze Präsentation anfertigen (sehr exakt sein!)
     - Verteidigung möglicherweise am 01.07.22, 2 Wochen nach Abgabe
+- 04.05.22
+    - Fortschritts-Update:
+        - Verschiedene Backbone-Netze eingebaut
+            - Ähnlicher loss mit größeren Netzen (z.B. DenseNet, EfficientNet B7)
+        - Positional Encoding als lernbaren Parameter eingebaut
+            - Liefert allerdings schlechtere Ergebnisse im Training
+        - Aktive RIM units können jetzt geloggt werden
+        - Auf gaze changes trainiert, aber kein Erfolg
+    - Anstatt von Positional Encoding Conv LSTM möglich in RIM
+        - Group convolution benutzen
+    - Wie kann Input attention gut visualisiert werden?
+        - Gradient angucken (1 als input)
+    - Clip duration kürzer machen (analog Deepgaze → 4 letzte Sakkaden)
+        - Auch auf untrainiertem Netzwerk Einfluss testen
+        - Deepgaze sagt nur Sakkaden vorher, können mehrere Frames dazwischen sein
+    - Gaze changes predicten
+        - Vielleicht ganz ohne arctanh/tanh Transformation
+            - Dann diagonal zurücksetzen falls es out-of-bounds ist
+        - Erstmal nur auf cumsum-loss trainieren (beinhaltet individuellen Loss bereits)
+    - Gaussian mixture einbauen?
+        - Aufgrund der verbleibenden Zeit niedrigere Prio, lieber in der Arbeit dann diskutieren
+    - Einmal sequentiell, einmal im gleichen Batch gleichen Input testen, könnte Fehler aufzeigen
+    - 1 video, all observers trainieren, prüfen ob dort die Problematik ähnlich ist
+    - Kurze Präsentation für Prof. Obermayer nächste Woche Donnerstag 14 Uhr
+    - Wie kann erster LSTM hidden state gesetzt werden?
+        - Nur in erstem RIM layer setzen
+        - Nur hidden state, nicht cell state (fließt nicht in Input attention ein)
+        1. Trainieren abhängig von observer(, video, clip_start)
+        2. Alternativ einfach ID als seed und zufällig generieren
+        3. Oder Observer-Information in query einfließen lassen
+            1. h_t konkatenieren mit Observer-Embedding, W_Q erweitern
+        4. Dropout-Seed als Observer (+ Video, start-frame) setzen
+            1. problematisch, da pytorch-seed nur global gesetzt werden kann
+    - Vielleicht mehrere RIM-Layer ausprobieren

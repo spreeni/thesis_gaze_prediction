@@ -4,6 +4,7 @@ import sys
 import subprocess
 import shutil
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
@@ -22,10 +23,13 @@ _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
 #_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
-_MODE += '_golf'
-_CHECKPOINT_PATH = r'data/lightning_logs/version_372/checkpoints/epoch=200-step=200.ckpt'
+_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+#_MODE += '_golf'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_471/checkpoints/epoch=101-step=101.ckpt'
+
+_CALC_NSS = True
 
 _SCALE_UP = True
 _SHOW_SALIENCY = True
@@ -36,19 +40,20 @@ _VIDEO_SUFFIX = ''
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-dataset = gaze_labeled_video_dataset(
-    data_path=_DATA_PATH,
-    #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
-    #video_sampler=torch.utils.data.SequentialSampler,
-    clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
-    video_sampler=torch.utils.data.RandomSampler,
-    transform=VAL_TRANSFORM,
-    #transform=None,
-    video_file_suffix=_VIDEO_SUFFIX,
-    decode_audio=False,
-    decoder="pyav",
-    predict_change=False
-)
+def get_dataset():
+    return gaze_labeled_video_dataset(
+        data_path=_DATA_PATH,
+        #clip_sampler=make_clip_sampler("uniform", _CLIP_DURATION),
+        #video_sampler=torch.utils.data.SequentialSampler,
+        clip_sampler=make_clip_sampler("random", _CLIP_DURATION),
+        video_sampler=torch.utils.data.RandomSampler,
+        transform=VAL_TRANSFORM,
+        #transform=None,
+        video_file_suffix=_VIDEO_SUFFIX,
+        decode_audio=False,
+        decoder="pyav",
+    )
+dataset = get_dataset()
 
 model = GazePredictionLightningModule.load_from_checkpoint(_CHECKPOINT_PATH).to(device=device)
 """
@@ -67,17 +72,24 @@ model = GazePredictionLightningModule(lr=1e-6, batch_size=16, frames=round(_CLIP
 em_encoder = OneHotEncoder()
 em_encoder.fit([[i] for i in range(4)])
 
-samples_per_clip = 5
-samples = 2
+if _CALC_NSS:
+    df_nss = pd.DataFrame(columns=['video', 'observer', 'first_frame', 'last_frame', 'nss_orig', 'nss_pred', 'nss_middle', 'nss_rnd'])
+
+samples_per_clip = 5 if not _CALC_NSS else 1
+samples = 2 if not _CALC_NSS else 100
 #for i, (video_name, observer, clip_start) in enumerate([
 #    ('golf', 'AAW', 5.),
 #    ('golf', 'AAW', 10.)
 #]):
 #    sample = dataset.get_clip(video_name, observer, clip_start=clip_start)
 for i in range(0, samples):
-    #sample = next(dataset)
-    sample = dataset.get_clip('golf', 'AAW', clip_start=3. + i * _CLIP_DURATION)
-    #sample = dataset.get_clip('doves', 'AAW', clip_start=3. + i * _CLIP_DURATION)
+    try:
+        sample = next(dataset)
+        #sample = dataset.get_clip('golf', 'AAW', clip_start=3. + i * _CLIP_DURATION)
+        #sample = dataset.get_clip('doves', 'AAW', clip_start=3. + i * _CLIP_DURATION)
+    except Exception:
+        dataset = get_dataset()
+        continue
 
     video_name = sample['video_name']
     observer = sample['observer']
@@ -109,10 +121,6 @@ for i in range(0, samples):
         y_hats = [y_hat[:, :2] for y_hat in y_hats]
         em_data_hats = [em_encoder.inverse_transform(em_data_hat).reshape((-1)) for em_data_hat in em_data_hats]
 
-    save_dir = None if _OUTPUT_DIR is None else f'{_OUTPUT_DIR}/{i}'
-    if save_dir is not None:
-        os.makedirs(save_dir, exist_ok=True)
-
     if em_encoder:
         em_data = em_encoder.inverse_transform(em_data).reshape((-1))
     else:
@@ -141,13 +149,25 @@ for i in range(0, samples):
     nss = np.array(nss_scores).mean()
     gaze_mid = np.ones(y.shape, dtype=np.int32) * 112
     nss_mid = metrics.score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
+    gaze_rnd = np.random.randint(225, size=y.shape, dtype=np.int32)
+    nss_rnd = metrics.score_gaussian_density(video_name, gaze_rnd, frame_ids=frame_indices)
     print("NSS original clip:", nss_orig)
     print("NSS prediction:", nss, "all scores:", nss_scores)
-    print("NSS middle baseline:", nss_mid, "\n")
+    print("NSS middle baseline:", nss_mid)
+    print("NSS random baseline:", nss_rnd, "\n")
     
+    if _CALC_NSS:
+        df_nss = df_nss.append({'video': video_name, 'observer': observer, 'first_frame': frame_indices[0], 'last_frame': frame_indices[-1],
+                            'nss_orig': nss_orig, 'nss_pred': nss, 'nss_middle': nss_mid, 'nss_rnd': nss_rnd}, ignore_index=True)
+        continue
+
     #y_hats = np.stack(y_hats, axis=1)
     if em_data_hats is not None:
         em_data_hats = np.stack(em_data_hats, axis=1)
+
+    save_dir = None if _OUTPUT_DIR is None else f'{_OUTPUT_DIR}/{i}'
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
 
     if _SHOW_SALIENCY:
         nss_calc = metrics.NSSCalculator()
@@ -171,8 +191,9 @@ for i in range(0, samples):
         frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
 
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
-    subprocess.call(f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate 10 -start_number 0 -i {i}/%03d.png -pix_fmt yuv420p {_MODE}_{i}.mp4", cwd=_OUTPUT_DIR, shell=True)
-    shutil.rmtree(save_dir)
+    utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=1800, remote_machine=True,
+                                   delete_frames=True)
+
     with open(os.path.join(_OUTPUT_DIR, "metadata.txt"), "a") as f:
         f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}, nss (original, prediction, middle): ({nss_orig:.2f}, {nss:.2f}, {nss_mid:.2f})\n")
     #if _PLOT_RESULTS:
@@ -180,3 +201,13 @@ for i in range(0, samples):
     #else:
     #    filepath = f'data/sample_outputs/version_43/{i}'
     #    np.savez(filepath, frames=frames, em_data_hat=em_data_hat, y_hat=y_hat, em_data=em_data, y=y)
+
+if _CALC_NSS:
+    diff_to_orig = df_nss.nss_orig - df_nss.nss_pred
+    diff_to_mid = df_nss.nss_middle - df_nss.nss_pred
+    diff_to_rnd = df_nss.nss_rnd - df_nss.nss_pred
+    print(f"\nNSS (original - prediction): {diff_to_orig.mean():.2f}+-{diff_to_orig.std():.2f}")
+    print(f"NSS (middle - prediction): {diff_to_mid.mean():.2f}+-{diff_to_mid.std():.2f}")
+    print(f"NSS (random - prediction): {diff_to_rnd.mean():.2f}+-{diff_to_rnd.std():.2f}")
+    os.makedirs(_OUTPUT_DIR, exist_ok=True)
+    df_nss.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_nss.csv'), index=False)
