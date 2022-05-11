@@ -596,3 +596,36 @@
         4. Dropout-Seed als Observer (+ Video, start-frame) setzen
             1. problematisch, da pytorch-seed nur global gesetzt werden kann
     - Vielleicht mehrere RIM-Layer ausprobieren
+- 11.05.22
+    - Fortschritts-Update:
+        - 2 RIM units trainiert, allerdings keine Spezialisierung in Fixation/Sakkade erkennbar
+            - RIM activations und eye movement classification werden geloggt
+        - Bug in Positional Encoding gefixt, lernt aber keine intuitiven Maps
+        - Mit clip duration=0.5s trainiert
+            - Loss bleibt sehr hoch → Vermutlich auch wegen h_0=0, hat weniger Zeit den hidden state zu bilden
+        - Präsentation für Prof. Obermayer aufgebaut
+            - NSS score über 100 random clips berechnet
+        - Gradient durch Input attention visualisiert
+            - Sieht leider zufällig verteilt aus, keine Objekte erkennbar
+                - Verschwindet Gradient vielleicht und wird die Input attention so nicht trainiert?
+        - 2 Rim layer ausprobiert → Keine Verbesserung
+        - Gaze change prediction funktioniert immer noch gar nicht
+            - Möglicherweise Code auf Bugs checken?
+    - RIM activations mit n=2 noch einmal auf nur einem Clip overfitten, wo Fixation und Sakkade auch sichtbar sind
+        - RIM Aktivierungen und Eye movement Klassifikation in ein Plot packen, damit Korrelationen besser sichtbar sind
+    - Wenig Frames  mit Sakkaden, unbalanciertes Datenset
+        - Vielleicht loss für Sakkaden höher gewichten
+            - Regularisierung kann problematisch sein, da irgenwann die Regularisierung für Sakkaden über MSE zur ground truth überwiegt
+            - MSE-loss verschieden gewichten für Sakkade und Fixation/SP
+    - NSS scores als Linien für verschiedene Videos plotten
+        - Checken ob Differenz einfach zwischen NSS-scores berechnet werden kann (log-likelihood?)
+    - Einmal ganze Videos samplen
+        - Falls Visualisierung lange dauert, einfach Clips aus Output samplen
+    - Input attention
+        - Wird Gradient verloren, trotz retain_graph=True
+        - Einheitliche Farbskala in Gradient Visualisierung, damit wenigstens Attention über Channel betrachtet werden kann
+    - Gibt es andere Metriken für Scanpath, welche Bewegungs-Dynamiken besser betrachten?
+        - Wie hat DeepGaze dies ausgewertet?
+        - Normalerweise oft über Anteil Sakkade/Fixation, allerdings Klassifikation schwierig solange Bewegungs-Dynamik nicht passt
+            - Stattdessen Histogramm von gaze changes / Winkeln betrachten
+                - Falls es zu viele kleine Werte gibt, log-scale oder threshholding anwenden
