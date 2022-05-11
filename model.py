@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import pytorch_lightning
 from pytorch_lightning.callbacks import LearningRateMonitor
 from torchinfo import summary
+from sklearn.preprocessing import OneHotEncoder
 
 from RIM import RIM, RIMCell, GroupLinearLayer
 
@@ -16,6 +17,7 @@ from feature_extraction import FeatureExtractor, FPN
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+LOG_DEBUG_INFO = False
 
 def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
     """
@@ -38,12 +40,27 @@ def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
         fps=fps)
 
 
+def log_tensor_as_image(model, frame, name, interpolate_range=True, dataformats='CHW'):
+    """
+    Adds tensor as image to tensorboard logs.
+
+    Expects frame in shape (C, H, W) or (H, W) for one-channel tensors.
+    """
+    if interpolate_range:
+        frame = np.interp(frame, (frame.min(), frame.max()), (0, 255)).astype('uint8')
+    
+    model.trainer.logger.experiment.add_image(
+        tag=f"{name}_epoch_{model.global_step}",
+        img_tensor=frame,
+        dataformats=dataformats)
+
+
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
-                 fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
-                 rnn_cell, rim_layers, attention_heads, p_teacher_forcing, n_teacher_vals,
-                 weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc,
-                 channel_wise_attention, predict_change):
+                 backbone_model, fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
+                 rnn_cell, rim_layers, out_attn_heads, p_teacher_forcing, n_teacher_vals,
+                 weight_init, mode, loss_fn, lambda_reg_fix, lambda_reg_sacc, input_attn_heads,
+                 input_dropout, comm_dropout, channel_wise_attention, predict_change):
         super().__init__()
 
         self.rim_hidden_size = rim_hidden_size
@@ -60,10 +77,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         self.mode = mode
 
+        self.em_encoder = OneHotEncoder()
+        self.em_encoder.fit([[i] for i in range(4)])
+
         self.save_hyperparameters()
 
         # Feature Pyramid Network for feature extraction
-        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model='mobilenetv3_large_100')
+        self.backbone = FeatureExtractor(device, input_dims, self.batch_size, model=backbone_model)
         self.fpn = FPN(device, in_channels_list=self.backbone.in_channels, out_channels=out_channels,
                        separate_channels=self.channel_wise_attention, only_use_last_layer=fpn_only_use_last_layer)
 
@@ -75,11 +95,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         print(f"FPN produces {n_features} different Features")
 
         self.out_features = 6 if self.predict_em else 2
-        if n_teacher_vals > 0:
-            n_features += n_teacher_vals * self.out_features
-
+        
         if self.mode == 'LSTM':
-            self.lstm = torch.nn.LSTM(input_size=n_features, hidden_size=rim_hidden_size, device=device, bidirectional=False)
+            n_features_lstm = n_features
+            if n_teacher_vals > 0:
+                n_features_lstm += n_teacher_vals * self.out_features
+            self.lstm = torch.nn.LSTM(input_size=n_features_lstm, hidden_size=rim_hidden_size, device=device, bidirectional=False)
         else:
             self.rim = RIM(
                 device=device,
@@ -90,24 +111,30 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 rnn_cell=rnn_cell,
                 n_layers=rim_layers,
                 bidirectional=False,
-                num_input_heads=2
+                num_input_heads=input_attn_heads,
+                input_dropout=input_dropout,
+                comm_dropout=comm_dropout,
                 #input_key_size=512,
                 #input_query_size=512,
                 #input_value_size=1600,
                 #comm_value_size=100
+                p_teacher_forcing = p_teacher_forcing,
+                n_teacher_vals = n_teacher_vals,
+                out_features=self.out_features
             )
 
         # Dry run to get input size for end layer
         inp = torch.randn(frames, self.batch_size, 1 if not self.channel_wise_attention else out_channels, n_features, device=device)
         with torch.no_grad():
             if self.mode == 'LSTM':
-                out, _ = self.lstm(inp)
+                inp = torch.randn(frames, self.batch_size, n_features_lstm, device=device)
+                out = self.lstm(inp)[0]
             else:
-                out, _, _ = self.rim(inp)
+                out = self.rim(inp)[0]
             
         embed_dim = out.shape[-1]
 
-        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, attention_heads)
+        self.multihead_attn = torch.nn.MultiheadAttention(embed_dim, out_attn_heads, device=device)
 
         # here comes the hack, because MultiheadAttention maps to embed_dim
         factory_kwargs = {'device': self.multihead_attn.in_proj_weight.device, 'dtype':  self.multihead_attn.in_proj_weight.dtype}
@@ -152,12 +179,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.apply(weights_init_rnn)
         self.multihead_attn._reset_parameters()
 
-    def forward(self, x, y=None, log_features=False):
+    def forward(self, x, y=None, em_data=None, log_features=False):
         batch_size, ch, frames, *input_dim = x.shape
         x = torch.swapaxes(x, 1, 2)
         if log_features:
             for i in range(min(batch_size, 2)): #(N,T,C,H,W)
-                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids", fps=5, interpolate_range=True)
+                log_tensor_as_video(self, x[i].cpu().detach().numpy(), f"vids_{i}", fps=5, interpolate_range=True)
         
         # Reshaping as feature extraction expects tensor of shape (B, C, H, W)
         x = x.reshape(batch_size * frames, 3, *input_dim)
@@ -167,10 +194,13 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if log_features:
             x, ch_data = self.fpn(x, return_channels=True)
             for key in ch_data:
-                key_data = ch_data[key].cpu().detach().numpy()
                 channels = ch_data[key].shape[1]
-                for ch in range(channels):
-                    log_tensor_as_video(self, key_data[:, ch, :, :], f"fpn_{key}_{ch}", fps=5, interpolate_range=True)
+                key_data = ch_data[key].reshape(
+                        batch_size, frames, channels, *ch_data[key].shape[-2:]
+                    ).cpu().detach().numpy()
+                for i in range(min(batch_size, 2)):
+                    for ch in range(channels):
+                        log_tensor_as_video(self, key_data[i, :, ch, :, :], f"fpn_{key}_{i}_ch{ch}", fps=5, interpolate_range=True)
         else:
             x = self.fpn(x)
 
@@ -183,40 +213,63 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         # Process each time step in RIM and Multiattention layer (teacher forcing is applied)
         xs = list(torch.split(x, 1, dim = 0))
         outputs = []
-        
+        rim_activations = []
+        output = None
+
         if self.mode == 'LSTM':
             h = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
             c = torch.randn(1, batch_size, self.rim_hidden_size, device=device)
         else:
             h, c = None, None
         for i, x in enumerate(xs):
-            # If teacher forcing activated, extend features with possible teacher values
-            if self.n_teacher_vals > 0:
-                x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
-
-                if i != 0:
-                    # Add output of previous iteration to input features of next iteration
-                    output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
-                    x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
-
-                    if y is not None:
-                        y_prev = y[:, i-1, :]
-
-                        # Repeat label values n_teacher_vals times
-                        y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
-
-                        # Create random mask over batch
-                        random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
-
-                        # Add ground truth for random mask to input features of next iteration
-                        x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
             if self.mode == 'LSTM':
-                x, (h, c) = self.lstm(x, (h, c))
+                # If teacher forcing activated, extend features with possible teacher values
+                if self.n_teacher_vals > 0:
+                    x = torch.nn.ConstantPad1d((0, self.n_teacher_vals * self.out_features), 0)(x)
+
+                    if i != 0:
+                        # Add output of previous iteration to input features of next iteration
+                        output_repeated = torch.tile(output, (1, 1, self.n_teacher_vals * out_channels))
+                        x[:, :, :, -self.n_teacher_vals * self.out_features:] = output_repeated.reshape(1, batch_size, out_channels, -1)
+
+                        if y is not None:
+                            y_prev = y[:, i-1, :]
+
+                            # Repeat label values n_teacher_vals times
+                            y_prev_repeated = torch.tile(y_prev, (1, 1, self.n_teacher_vals * out_channels)).reshape(1, batch_size, out_channels, -1)
+
+                            # Create random mask over batch
+                            random_mask = torch.FloatTensor(x.shape[:2]).uniform_().to(device=device) < self.p_teacher_forcing
+
+                            # Add ground truth for random mask to input features of next iteration
+                            x[:, :, :, -self.n_teacher_vals * self.out_features:][random_mask, :, :] = y_prev_repeated[random_mask, :, :]
+                
+                x, (h, c) = self.lstm(x[:, :, 0, :], (h, c))
             else:
-                x, h, c = self.rim(x, h=h, c=c)
+                y_prev = None
+                if y is not None and i != 0:
+                    y_prev = y[:, i-1, :].unsqueeze(0)
+                x, mask, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                rim_activations.append(mask)
             output, attn_output_weights = self.multihead_attn(x, x, x)
-            outputs.append(output.pow(3))
+            if self.predict_change:
+                #outputs.append(output.pow(3))
+                outputs.append(output)
+            else:
+                outputs.append(torch.tanh(output))
+
         out = torch.cat(outputs, dim = 0)
+
+        # Log RIM unit activations
+        if self.mode != 'LSTM' and log_features:
+            if em_data is not None:
+                em_data = em_data.cpu().detach().numpy()
+                for i in range(batch_size):
+                    log_tensor_as_image(self, em_data[i].T, f"em_phases{i}", interpolate_range=False, dataformats='HW')
+
+            rim_activations = torch.cat(rim_activations, dim=0).swapaxes(0, 1)
+            for i in range(batch_size):
+                log_tensor_as_image(self, rim_activations[i].T, f"rim_activations{i}", interpolate_range=False, dataformats='HW')
 
         out = torch.swapaxes(out, 0, 1)     # Swap batch and sequence again
         return out
@@ -228,12 +281,18 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Gaze regression loss: loss_fn can be mse_loss/l1_loss/smooth_l1_loss
         loss_fn = getattr(F, self.loss_fn)
-        loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        if not self.predict_change:
+            loss = loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels'][not_noise])
+        else:
+            gaze_pos = torch.tanh(y_hat[:, :, :2].cumsum(dim=1))
+            loss = loss_fn(gaze_pos[not_noise], batch['frame_labels'][not_noise])
+            #loss += loss_fn(y_hat[:, :, :2][not_noise], batch['frame_labels_change'][not_noise])
 
         # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
         # First timepoint is ignored as it does not have a previous comparison
         fix_sp[0, 0] = False
         saccades[0, 0] = False
+
         if not self.predict_change:
             loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
             loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
@@ -243,8 +302,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         if train_step:
             self.log("reg_loss_fix", loss_reg_fix_sp, prog_bar=True)
             self.log("reg_loss_sacc", loss_reg_sacc, prog_bar=True)
-        loss_reg = loss_reg_fix_sp + loss_reg_sacc
-        loss += loss_reg
+        loss += loss_reg_fix_sp + loss_reg_sacc
 
         # Eye movement classification loss
         if self.predict_em:
@@ -287,7 +345,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def on_after_backward(self):
         # Log histograms of model parameters, gradients and parameter changes
         for name, param in self.named_parameters():
-            if not name.startswith('backbone.'):
+            if not name.startswith('backbone.') and LOG_DEBUG_INFO:
                 # Log param values
                 self.trainer.logger.experiment.add_histogram(name, param, self.global_step)
                 self.save_sample_param_values(name, param)
@@ -309,23 +367,28 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                     print(f"{name}_epoch_{self.global_step}", param.shape)
         
         # Very experimental as a time point
-        if self.global_step == 45:
+        if self.global_step == 45 and LOG_DEBUG_INFO:
             print("plotting param values!")
             self.plot_sample_param_values()
 
-        # Log features every 5th epoch
         if self.predict_em:
             y = torch.concat((batch['frame_labels'], batch['em_data']), dim=-1)
         else:
             y = batch['frame_labels']
-        if self.global_step % 5 == 0:
-            y_hat = self.forward(batch["video"], y=y, log_features=True)
+
+        # Log features every 20th step
+        if self.global_step % 20 == 0 and LOG_DEBUG_INFO:
+            y_hat = self.forward(batch["video"], y=y, em_data=batch['em_data'], log_features=True)
         else:
             y_hat = self.forward(batch["video"], y=y)
 
-        if self.global_step % 10 == 0:
-            print("y_hat:\n", y_hat[0, :, :2])
-            print("y:\n", batch['frame_labels'][0])
+        if self.global_step % 5 == 0:
+            print("y_hat:\n", y_hat[0, :10, :2])
+            if self.predict_change:
+                print("y (change):\n", batch['frame_labels_change'][0, :10])
+                print("y_hat (summed):\n", torch.tanh(y_hat[0, :10, :2].cumsum(dim=0)))
+            print("y:\n", batch['frame_labels'][0, :10])
+
         # Compute mean squared error loss, loss.backwards will be called behind the scenes
         # by PyTorchLightning after being returned from this method.
         # TODO: Implement specialized loss
@@ -355,11 +418,12 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
 
 def train_model(data_path: str, clip_duration: float, batch_size: int, num_workers: int, out_channels: int,
-                lr=1e-6, only_tune: bool = False, predict_em=True, fpn_only_use_last_layer=True,
-                rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1, 
-                attention_heads=2, p_teacher_forcing=0.3, n_teacher_vals=10, weight_init='xavier_normal', 
+                lr=1e-6, only_tune: bool = False, predict_em=True, backbone_model='mobilenet_v3_large',
+                fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
+                out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                lambda_reg_fix=0., lambda_reg_sacc=0., channel_wise_attention=False, predict_change=True,
+                lambda_reg_fix=0., lambda_reg_sacc=0., input_attn_heads=3, input_dropout=0.2,
+                comm_dropout=0.2, channel_wise_attention=False, predict_change=True,
                 train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
@@ -369,20 +433,22 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
     else:
         regression_module = GazePredictionLightningModule(lr=lr, batch_size=batch_size, frames=round(clip_duration * 29.97),
                                                         input_dims=(224, 224), out_channels=out_channels,
-                                                        predict_em=predict_em,
+                                                        predict_em=predict_em, backbone_model=backbone_model,
                                                         fpn_only_use_last_layer=fpn_only_use_last_layer,
                                                         rim_hidden_size=rim_hidden_size,
                                                         rim_num_units=rim_num_units, rim_k=rim_k, rnn_cell=rnn_cell,
-                                                        rim_layers=rim_layers, attention_heads=attention_heads,
+                                                        rim_layers=rim_layers, out_attn_heads=out_attn_heads,
                                                         p_teacher_forcing=p_teacher_forcing, n_teacher_vals=n_teacher_vals, 
                                                         weight_init=weight_init, mode=mode, loss_fn=loss_fn,
                                                         lambda_reg_fix=lambda_reg_fix, lambda_reg_sacc=lambda_reg_sacc,
-                                                        channel_wise_attention=channel_wise_attention, predict_change=predict_change)
+                                                        input_attn_heads=input_attn_heads, input_dropout=input_dropout,
+                                                        comm_dropout=comm_dropout, channel_wise_attention=channel_wise_attention,
+                                                        predict_change=predict_change)
     data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='', batch_size=batch_size,
                                       clip_duration=clip_duration, num_workers=num_workers, predict_change=predict_change)
     # data_module = GazeVideoDataModule(data_path=data_path, video_file_suffix='.m2t', batch_size=batch_size, clip_duration=clip_duration, num_workers=num_workers)
 
-    summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
+    #summary(regression_module, input_size=(batch_size, 3, round(clip_duration * 29.97), 224, 224))
 
     if only_tune:
         # Find maximum batch size that fits into memory
@@ -396,8 +462,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
         tb_logger = pytorch_lightning.loggers.TensorBoardLogger("data/lightning_logs", name='')
         early_stop_callback = pytorch_lightning.callbacks.early_stopping.EarlyStopping(monitor='train_loss', min_delta=0.0005, patience=20, verbose=True, mode='min')
         lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
-        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=101, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
-                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[early_stop_callback], gradient_clip_val=gradient_clip_val,
+        trainer = pytorch_lightning.Trainer(gpus=[0], max_epochs=201, auto_lr_find=False, auto_scale_batch_size=False, logger=tb_logger,
+                                            fast_dev_run=False, log_every_n_steps=1, callbacks=[], gradient_clip_val=gradient_clip_val,
                                             gradient_clip_algorithm=gradient_clip_algorithm, stochastic_weight_avg=False)#, track_grad_norm=2)
 
         trainer.fit(regression_module, data_module)
@@ -406,10 +472,12 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
 if __name__ == '__main__':
     # Dataset configuration
     _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224'
-    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
-    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/all_videos_single_observer'
+    _DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video_all_observers'
+    #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_video'
+    #_DATA_PATH_FRAMES = r'data/GazeCom/movies_m2t_224x224/single_clip'
     # csv_path = r'C:\Projects\uni\master_thesis\datasets\GazeCom\movies_mpg_frames\test_pytorchvideo.txt'
-    _CLIP_DURATION = 2  # Duration of sampled clip for each video in seconds
+    _CLIP_DURATION = 5  # Duration of sampled clip for each video in seconds
     _BATCH_SIZE = 16
     _NUM_WORKERS = 1 # For one video
     #_NUM_WORKERS = 12  # Number of parallel processes fetching data

@@ -64,7 +64,7 @@ class VideosObserversPaths:
                 videos_and_observers.append((video_name, observer))
 
         assert (
-            len(videos_and_observers) > 0
+                len(videos_and_observers) > 0
         ), f"Failed to load dataset from {file_path}."
         return cls(videos_and_observers)
 
@@ -102,12 +102,12 @@ class VideosObserversPaths:
             videos_and_observers.extend([(video_name, observer) for observer in observers])
 
         assert (
-            len(videos_and_observers) > 0
+                len(videos_and_observers) > 0
         ), f"Failed to load dataset from {label_path}."
         return cls(videos_and_observers, path_prefix=dir_path, video_file_suffix=video_file_suffix)
 
     def __init__(
-        self, videos_and_observers: List[Tuple[str, str]], path_prefix: str = "", video_file_suffix: str = ""
+            self, videos_and_observers: List[Tuple[str, str]], path_prefix: str = "", video_file_suffix: str = ""
     ) -> None:
         """
         Args:
@@ -126,6 +126,11 @@ class VideosObserversPaths:
 
     path_prefix = property(None, path_prefix)
 
+    def get_paths_for_video_observer(self, video_name, observer):
+        video_path = os.path.join(self._path_prefix, 'video_data', f'{video_name}{self._video_file_suffix}')
+        label_path = os.path.join(self._path_prefix, 'label_data', video_name, f'{observer}_{video_name}.txt')
+        return video_path, label_path
+
     def __getitem__(self, index: int) -> Tuple[str, str]:
         """
         Args:
@@ -135,11 +140,8 @@ class VideosObserversPaths:
             The path and observer tuple for the given index.
         """
         video_name, observer = self._videos_and_observers[index]
-
-        video_path = os.path.join(self._path_prefix, 'video_data', f'{video_name}{self._video_file_suffix}')
-        label_path = os.path.join(self._path_prefix, 'label_data', video_name, f'{observer}_{video_name}.txt')
-
-        return (video_path, label_path)
+        video_path, label_path = self.get_paths_for_video_observer(video_name, observer)
+        return video_path, label_path
 
     def __len__(self) -> int:
         """

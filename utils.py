@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import cv2
 from scipy.io.arff import loadarff
+import shutil
+import subprocess
 from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,11 @@ def plot_frames_with_labels(
         save_to_directory=None
 ):
     """
-    Visualizes video frames with bounding boxes for gaze labels
+    Visualizes video frames with bounding boxes for gaze labels.
+
+    Can be used to plot averaged gaze data per frame together with raw gaze data.
+
+    Note: Can also be used to plot gaze data with multiple predictions - then set groundtruth as average gaze data and predicted as raw gaze data.
 
     Args:
         frames:             Frames as array of shape (n_frames, height, width, channels)
@@ -106,7 +112,10 @@ def plot_frames_with_labels(
         assert len(avg_gaze_locations) == len(
             avg_em_data), f"Number of gaze locations and eye data classification labels needs to be the same: {len(avg_gaze_locations)} != {len(avg_em_data)}."
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
+    fig = plt.figure(figsize=(fig_width, fig_width*frames.shape[1]/frames.shape[2]))
+    ax = plt.Axes(fig, [0., -0.05, 1., 1.])
+    ax.set_axis_off()
+    fig.add_axes(ax)
     for i_frame in range(min(num_frames, len(avg_gaze_locations))):
         frame = frames[i_frame]
         avg_gaze = avg_gaze_locations[i_frame]
@@ -118,7 +127,7 @@ def plot_frames_with_labels(
         # Plot averaged label
         color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
         avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
-                                          linewidth=1.4, edgecolor=color, facecolor=color)
+                                          linewidth=1.4, edgecolor='black', facecolor=color)
         ax.add_patch(avg_label_box)
 
         # Plot raw labels
@@ -127,9 +136,12 @@ def plot_frames_with_labels(
             assert num_frames == len(
                 gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
             for i, gaze in enumerate(gaze_locations[i_frame]):
-                color = EM_COLOR_MAP[em_data[i_frame][i]] if em_data is not None else 'r'
+                if em_data is not None:
+                    color = EM_COLOR_MAP[em_data[i_frame][i]]
+                else:
+                    color = plt.get_cmap('tab10').colors[i]
                 label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.5, edgecolor=color, facecolor=color)#'none')
+                                              linewidth=0.8, edgecolor='black', facecolor=color)#'none')
                 ax.add_patch(label_box)
 
         # Update title
@@ -161,19 +173,20 @@ def get_video_frames_from_file(video_path: str) -> Tuple[np.ndarray, float]:
     while success:
         success, image = vidcap.read()
         if success:
-            frames.append(image)
+            frames.append(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
     return np.array(frames), fps
 
 
-def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_path: str):
+def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_path: str, save_to_directory=None):
     """
-    Visualizes video frames with bounding boxes for gaze labels for GazeCom dataset
+    Visualizes video frames with bounding boxes for gaze labels of GazeCom dataset
 
     Args:
-        video_path:     video file path (needs to be a file)
-        label_path:     label file path with frame-wise labels
-        raw_label_path: raw label file path with all labels
+        video_path:         video file path (needs to be a file)
+        label_path:         label file path with frame-wise labels
+        raw_label_path:     raw label file path with all labels
+        save_to_directory:  (Optional) Directory to which plots are to be saved to. If given, will not display plots
     """
     # Load frame data
     print("load video data")
@@ -323,3 +336,32 @@ def px_to_visual_angle_in_structured_arr(arr, x_colname, y_colname, width_px, he
     new_dt = np.dtype(arr.dtype.descr + [('x_angle', '<f8'), ('y_angle', '<f8')])
 
     return np.array(rfn.unstructured_to_structured(new_arr_unstruct), dtype=new_dt)
+
+
+def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern='%03d.png', fps=29.7, width_px=224,
+                             remote_machine=False, delete_frames=True):
+    """
+    Converts Frames into a movie file.
+
+    Args:
+        output_dir:     Directory where the movie file is written to
+        frame_dir:      Directory where the frame image files are saved at - needs to be a subdirectory of output_dir
+        output_name:    Filename of output movie file with extension, e.g. 'movie.mp4'
+        naming_pattern: Naming pattern of frame image files
+        fps:            Frames per second of resulting video
+        width_px:       Width of resulting video
+        remote_machine: Toggle if working on remote or local machine
+        delete_frames:  Flag to delete frame directory on completion
+    """
+
+    frame_dir_path = os.path.join(output_dir, frame_dir)
+    if remote_machine:
+        subprocess.call(
+            f"/mnt/antares_raid/home/yannicsl/miniconda3/envs/thesis/bin/ffmpeg -framerate {fps} -start_number 0 -i {frame_dir}/{naming_pattern} -vf scale={width_px}:-2 -pix_fmt yuv420p {output_name}",
+            cwd=output_dir, shell=True)
+    else:
+        subprocess.call(
+            f"ffmpeg -framerate {fps} -start_number 0 -i {frame_dir}/{naming_pattern} -vf scale={width_px}:-2 -pix_fmt yuv420p {output_name}",
+            cwd=output_dir, shell=True)
+    if delete_frames:
+        shutil.rmtree(frame_dir_path)
