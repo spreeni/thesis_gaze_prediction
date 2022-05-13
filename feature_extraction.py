@@ -5,6 +5,7 @@ from torchvision.models.feature_extraction import create_feature_extractor
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork
 import torchvision.models as models
 
+
 class FeatureExtractor(torch.nn.Module):
     """
     Bottom-Up feature extractor based on Mobilenet v3 Large. Extracts the features of layer 2-7
@@ -14,15 +15,27 @@ class FeatureExtractor(torch.nn.Module):
         extractor = FeatureExtractor(input_dim, batch_size)
         features = extractor(inp)
     """
-    def __init__(self, device, input_dim=(224, 224), batch_size=4, model='mobilenetv3_large_100'):
+    def __init__(self, device, input_dim=(224, 224), batch_size=4, model='mobilenet_v3_large', lower_resolution=True):
         super().__init__()
         self.device = device
 
         # Get a ResNet backbone
         if model == 'mobilenetv3_large_100':
             m = timm.create_model('mobilenetv3_large_100', pretrained=True)
+        elif model == 'mobilenet_v3_large':
+            m = models.mobilenet_v3_large(pretrained=True)
+        elif model == 'mobilenet_v3_small':
+            m = models.mobilenet_v3_small(pretrained=True)
         elif model == 'efficientnet_b0':
-            m = models.efficientnet_b0()
+            m = models.efficientnet_b0(pretrained=True)
+        elif model == 'efficientnet_b7':
+            m = models.efficientnet_b7(pretrained=True)
+        elif model == 'densenet201':
+            m = models.densenet201(pretrained=True)
+        elif model == 'vgg19':
+            m = models.vgg19(pretrained=True)
+        elif model == 'resnet152':
+            m = models.resnet152(pretrained=True)
         else:
             raise f"Unknown model name '{model}' given to FeatureExtractor"
 
@@ -30,11 +43,26 @@ class FeatureExtractor(torch.nn.Module):
         for param in m.parameters():
             param.requires_grad = False
 
-        # Extract features after each main layer
+        # Extract features before each downsampling step
         if model == 'mobilenetv3_large_100':
-            return_nodes={f'blocks.{i}': str(i) for i in range(1, 7)}
-        elif model == 'efficientnet_b0':
-            return_nodes={f'features.{i}': str(i) for i in range(1, 8)}
+            #return_nodes = {f'blocks.{i}': str(i) for i in range(1, 7)}
+            return_nodes = {f'blocks.{i}': str(i) for i in [0, 1, 2, 4, 6]}
+        elif model == 'mobilenet_v3_large':
+            return_nodes = {f'features.{i}': str(i) for i in [1, 3, 6, 12, 16]}
+        elif model == 'mobilenet_v3_small':
+            return_nodes = {f'features.{i}': str(i) for i in [0, 1, 3, 8, 11]}
+        elif model.startswith('efficientnet_'):
+            return_nodes = {f'features.{i}': str(i) for i in [1, 2, 3, 5, 7]}
+        elif model == 'densenet201':
+            return_nodes = {'features.relu0': '0', **{f'features.denseblock{i}': str(i) for i in range(1, 5)}}
+        elif model == 'vgg19':
+            return_nodes = {f'features.{i}': str(i) for i in [8, 17, 26, 35]}
+        elif model == 'resnet152':
+            return_nodes = {'relu': '0', **{f'layer{i}': str(i) for i in range(1, 5)}}
+
+        if lower_resolution:
+            # pop first element to chose 51x51 as resolution to decrease memory need 
+            return_nodes.pop(list(return_nodes.keys())[0])
         self.body = create_feature_extractor(
             m, return_nodes=return_nodes).to(device=self.device)
 
