@@ -371,10 +371,16 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             print("plotting param values!")
             self.plot_sample_param_values()
 
-        if self.predict_em:
-            y = torch.concat((batch['frame_labels'], batch['em_data']), dim=-1)
+        if not self.predict_change:
+            if self.predict_em:
+                y = torch.concat((batch['frame_labels'], batch['em_data']), dim=-1)
+            else:
+                y = batch['frame_labels']
         else:
-            y = batch['frame_labels']
+            if self.predict_em:
+                y = torch.concat((batch['frame_labels_change'], batch['em_data']), dim=-1)
+            else:
+                y = batch['frame_labels_change']
 
         # Log features every 20th step
         if self.global_step % 20 == 0 and LOG_DEBUG_INFO:
