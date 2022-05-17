@@ -143,3 +143,4 @@ data
 tmp_*
 lr_find_temp_*
 scale_batch_size_temp_*
+try_dataset.py
