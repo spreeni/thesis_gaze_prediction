@@ -1,23 +1,25 @@
 import torch
 
-def seeded_random_states(target_shape, seeds, rand_fn=torch.randn):
+def seeded_random_states(target_shape, seeds, rand_fn=torch.randn, batch_dim=0, device=None):
     '''
-    target_shape is batchsize x state_dim
+    target_shape is state_dim with batch_size in dimension batch_dim
     '''
 
     state_old = torch.get_rng_state()
 
     def sample_state(seed):
         torch.manual_seed(seed)
-        return rand_fn(1, target_shape[-1])
+        target_shape_list = list(target_shape)
+        target_shape_list[batch_dim] = 1
+        return rand_fn(target_shape_list, **dict(device=device) if device is not None else {})
 
-    states = torch.cat([sample_state(s) for s in seeds])
+    states = torch.cat([sample_state(s) for s in seeds], dim=batch_dim)
     
     torch.set_rng_state(state_old)
     return states
 
-def seeded_random_states_like(state_tensor, seeds, rand_fn=torch.randn):
-    return seeded_random_states(state_tensor.size(), seeds, rand_fn=rand_fn)
+def seeded_random_states_like(state_tensor, seeds, rand_fn=torch.randn, batch_dim=0):
+    return seeded_random_states(state_tensor.size(), seeds, rand_fn=rand_fn, batch_dim=batch_dim, device=state_tensor.device)
 
 if __name__ == "__main__":
     s1 = seeded_random_states((5, 20), [1, 2, 3])
