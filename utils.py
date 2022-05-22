@@ -7,6 +7,7 @@ import numpy as np
 import numpy.lib.recfunctions as rfn
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import plotly.express as px
 import cv2
 from scipy.io.arff import loadarff
 import shutil
@@ -404,3 +405,68 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
             cwd=output_dir, shell=True)
     if delete_frames:
         shutil.rmtree(frame_dir_path)
+
+
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True):
+    """
+    Calculates the gaze change distance and orientation for given gaze positions.
+    Note that change_dist is calculated on a normalized gaze within [-1, 1] to make comparisons on different scales.
+
+    Args:
+        gaze:               Gaze positions as numpy array or list of shape (timesteps, 2)
+        width:              Max width in px; default is 224
+        height:             Max height in px; default is 224
+        absolute_values:    Flag if absolute gaze positions or gaze changes are given; default are absolute values
+        normalize_gaze:     Flag if gaze needs to be normalized; default is True
+
+    Returns:
+        change_len:         Gaze change distance as numpy array of shape (timesteps,)
+        change_deg:         Gaze change degrees as numpy array of shape (timesteps,)
+    """
+    # Normalize range to [-1, 1]
+    if normalize_gaze:
+        if absolute_values:
+            gaze = np.array(gaze) / (np.array([width, height]) / 2) - 1
+        else:
+            gaze = np.array(gaze) / np.array([width, height])
+
+    # If given absolute gaze positions, first calculate gaze change at each step
+    gaze_change = gaze
+    if absolute_values:
+        gaze_change[1:] = np.roll(gaze, 1, axis=0)[1:]
+
+    # Get gaze change length and orientation for each
+    change_len = np.linalg.norm(gaze_change, axis=1)
+    change_deg = np.rad2deg(np.arctan2(gaze_change[:, 1], gaze_change[:, 0])) % 360
+    return change_len, change_deg
+
+
+def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, use_plotly=False):
+    """
+    Creates histograms of gaze change length and orientation.
+
+    Args:
+        change_len:     Gaze change distance as numpy array of shape (timesteps,)
+        change_deg:     Gaze change degrees as numpy array of shape (timesteps,)
+        output_path:    Filepath with prefix
+        use_plotly:     Flag to use Plotly; default is matplotlib
+    """
+    if not use_plotly:
+        plt.figure(figsize=(12, 8))
+        plt.hist(change_len, bins=np.linspace(0, 1.5, 100))
+        plt.savefig(f'{output_path}_dist.png', dpi=300)
+
+        plt.figure(figsize=(12, 8))
+        plt.hist(change_deg, bins=np.linspace(0, 360, 100))
+        plt.savefig(f'{output_path}_deg.png', dpi=300)
+    else:
+        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1.5, 100))
+        counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100))
+        bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
+        bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
+        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'count'},
+                         title='Gaze change distance')
+        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation', 'y': 'count'},
+                         title='Gaze change orientation')
+        fig_len.write_image(f'{output_path}_dist.png', scale=2)
+        fig_deg.write_image(f'{output_path}_deg.png', scale=2)
