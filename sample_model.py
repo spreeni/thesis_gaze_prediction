@@ -9,7 +9,7 @@ from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
 
 import utils
-import metrics
+import metrics_nss
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 from gaze_video_data_module import VAL_TRANSFORM
 from model import GazePredictionLightningModule
@@ -132,13 +132,13 @@ for i in range(0, samples):
         print("em_data")
         print(em_data[:20])
 
-    nss_orig = metrics.score_gaussian_density(video_name, y.astype(int), frame_ids=frame_indices)
-    nss_scores = [metrics.score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices) for y_hat in y_hats]
+    nss_orig = metrics_nss.score_gaussian_density(video_name, y.astype(int), frame_ids=frame_indices)
+    nss_scores = [metrics_nss.score_gaussian_density(video_name, y_hat.astype(int), frame_ids=frame_indices) for y_hat in y_hats]
     nss = np.array(nss_scores).mean()
     gaze_mid = np.ones(y.shape, dtype=np.int32) * 112
-    nss_mid = metrics.score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
+    nss_mid = metrics_nss.score_gaussian_density(video_name, gaze_mid, frame_ids=frame_indices)
     gaze_rnd = np.random.randint(225, size=y.shape, dtype=np.int32)
-    nss_rnd = metrics.score_gaussian_density(video_name, gaze_rnd, frame_ids=frame_indices)
+    nss_rnd = metrics_nss.score_gaussian_density(video_name, gaze_rnd, frame_ids=frame_indices)
     print("NSS original clip:", nss_orig)
     print("NSS prediction:", nss, "all scores:", nss_scores)
     print("NSS middle baseline:", nss_mid)
@@ -158,7 +158,7 @@ for i in range(0, samples):
         os.makedirs(save_dir, exist_ok=True)
 
     if _SHOW_SALIENCY:
-        nss_calc = metrics.NSSCalculator()
+        nss_calc = metrics_nss.NSSCalculator()
         nss_calc.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video_name}.npy'))
         density = nss_calc.gaussian_density[frame_indices[0]:frame_indices[-1] + 1, :, :]
         density = np.swapaxes(density, 1, 2)
