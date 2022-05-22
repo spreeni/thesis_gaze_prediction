@@ -76,7 +76,7 @@ def get_observer_from_label_path(label_path: str) -> str:
 
 def plot_frames_with_labels(
         frames: np.ndarray,
-        avg_gaze_locations: np.ndarray,
+        avg_gaze_locations: Optional[np.ndarray] = None,
         avg_em_data: Optional[np.ndarray] = None,
         gaze_locations: Optional[List[List[Tuple]]] = None,
         em_data: Optional[List[List]] = None,
@@ -116,33 +116,34 @@ def plot_frames_with_labels(
     ax = plt.Axes(fig, [0., -0.05, 1., 1.])
     ax.set_axis_off()
     fig.add_axes(ax)
-    for i_frame in range(min(num_frames, len(avg_gaze_locations))):
+
+    for i_frame in tqdm(range(num_frames)):
         frame = frames[i_frame]
-        avg_gaze = avg_gaze_locations[i_frame]
 
         # Plot frame
         ax.clear()
         ax.imshow(frame)
 
         # Plot averaged label
-        color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
-        avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
-                                          linewidth=1.4, edgecolor='black', facecolor=color)
-        ax.add_patch(avg_label_box)
+        if avg_gaze_locations is not None and i_frame < len(avg_gaze_locations):
+            avg_gaze = avg_gaze_locations[i_frame]
+            color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
+            avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
+                                              linewidth=1.4, edgecolor='black', facecolor=color)
+            ax.add_patch(avg_label_box)
 
         # Plot raw labels
         raw_box_width = round(0.5 * box_width)
-        if gaze_locations is not None:
-            assert num_frames == len(
-                gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
+        if gaze_locations is not None and i_frame < len(gaze_locations):
             for i, gaze in enumerate(gaze_locations[i_frame]):
-                if em_data is not None:
-                    color = EM_COLOR_MAP[em_data[i_frame][i]]
-                else:
-                    color = plt.get_cmap('tab10').colors[i]
-                label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.8, edgecolor='black', facecolor=color)#'none')
-                ax.add_patch(label_box)
+                if len(gaze) == 2:
+                    if em_data is not None:
+                        color = EM_COLOR_MAP[em_data[i_frame][i]]
+                    else:
+                        color = plt.get_cmap('tab10').colors[i % 10]
+                    label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
+                                                  linewidth=0.8, edgecolor='black', facecolor=color)#'none')
+                    ax.add_patch(label_box)
 
         # Update title
         title = f"Frame {i_frame} ({i_frame/fps:.2f}s)" if show_time else f"Frame {i_frame}"
@@ -229,7 +230,45 @@ def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_
 
     # Visualize labels on video data
     plot_frames_with_labels(frames, avg_gaze, avg_em_data=avg_em_data, gaze_locations=raw_gaze_per_frame,
-                            em_data=raw_em_data_per_frame, fps=fps, display_speed=0.5)
+                            em_data=raw_em_data_per_frame, fps=fps, display_speed=1, save_to_directory=save_to_directory)
+
+
+def plot_gazecom_frames_with_all_observers(video_path: str, label_dir: str, plot_em_data=False, save_to_directory=None, n_observers=None):
+    """
+    Visualizes video frames with bounding boxes for all observer gaze labels of GazeCom dataset
+
+    Args:
+        video_path:         video file path (needs to be a file)
+        label_dir:          label directory with frame-wise labels
+        plot_em_data:       (Optional) Flag to highlight eye movement phase data; as default different observers will be highlighted instead
+        save_to_directory:  (Optional) Directory to which plots are to be saved to. If given, will not display plots
+        n_observers:        (Optional) Number of observers to plot; default is no limit
+    """
+    # Load frame data
+    print("load video data")
+    frames, fps = get_video_frames_from_file(video_path)
+
+    # Load frame-wise averaged label data
+    print("load frame-wise label data")
+    gazes = [[] for _ in range(len(frames))]
+    em_data = [[] for _ in range(len(frames))]
+    root_video = Path(label_dir)
+    for i, label_path in enumerate(tqdm(root_video.rglob('*'))):
+        if label_path.is_file() and (n_observers is None or i < n_observers):
+            gaze, em = read_label_file(label_path, with_video_name=True)
+            gaze = np.array(gaze).astype('int').tolist()
+            em = np.array(em).astype('int').tolist()
+            for i_frame in range(len(frames)):
+                if i_frame < len(gaze):
+                    gazes[i_frame].append(gaze[i_frame])
+                    em_data[i_frame].append(em[i_frame])
+                else:
+                    gazes[i_frame].append([])
+                    em_data[i_frame].append([])
+
+    # Visualize labels on video data
+    plot_frames_with_labels(frames, gaze_locations=gazes, em_data=em_data if plot_em_data else None, fps=fps,
+                            display_speed=1, save_to_directory=save_to_directory)
 
 
 def get_video_dimensions(filepath: str) -> Tuple[int, int]:
