@@ -9,6 +9,7 @@ from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
 
 import utils
+import metrics
 import metrics_nss
 from gaze_labeled_video_dataset import gaze_labeled_video_dataset
 from gaze_video_data_module import VAL_TRANSFORM
@@ -31,6 +32,7 @@ _CALC_NSS = True
 
 _SCALE_UP = True
 _SHOW_SALIENCY = True
+_PLOT_GAZE_CHANGE_HISTOGRAMS = True
 
 _CLIP_DURATION = 5
 _VIDEO_SUFFIX = ''
@@ -178,12 +180,27 @@ for i in range(0, samples):
         color_overlay = (plt.cm.viridis(density) * 255)[:, :, :, :3]
         frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
 
+    # Calculate similarity in gaze change orientation and length distribution
+    change_len, change_deg = utils.get_gaze_change_dist_and_orientation(y, absolute_values=True, normalize_gaze=True)
+    change_data_hat = [utils.get_gaze_change_dist_and_orientation(y_hat, absolute_values=True, normalize_gaze=True) for y_hat in y_hats]
+    metric = 'cosine_dist'
+    change_len_similarity = np.mean(metrics.calc_similarity_gaze_change_distance(change_len, change_len_hat, metric) for change_len_hat, _ in change_data_hat)
+    change_deg_similarity = np.mean(metrics.calc_similarity_gaze_change_distance(change_deg, change_deg_hat, metric) for _, change_deg_hat in change_data_hat)
+
+    # Visualize predictions over video and in comparison with groundtruth
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
     utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=1800, remote_machine=True,
                                    delete_frames=True)
 
+    # Save metrics and metadata
     with open(os.path.join(_OUTPUT_DIR, "metadata.txt"), "a") as f:
-        f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}, nss (original, prediction, middle): ({nss_orig:.2f}, {nss:.2f}, {nss_mid:.2f})\n")
+        f.write(f"{_MODE}_{i}: {video_name}+{observer}, Frames {frame_indices[0]}-{frame_indices[-1]}, nss (original, prediction, middle): ({nss_orig:.2f}, {nss:.2f}, {nss_mid:.2f}), "
+                f"change_dist_similarity: {change_len_similarity:.3f}, change_deg_similarity: {change_deg_similarity:.3f}\n")
+
+    if _PLOT_GAZE_CHANGE_HISTOGRAMS:
+        utils.plot_gaze_change_dist_and_orientation(change_len, change_deg, f"{_OUTPUT_DIR}/{_MODE}_{i}_change_similarity", use_plotly=True)
+        utils.plot_gaze_change_dist_and_orientation(*change_data_hat[0], f"{_OUTPUT_DIR}/{_MODE}_{i}_change_similarity_pred", use_plotly=True)
+
     #if _PLOT_RESULTS:
     #    utils.plot_frames_with_labels(frames, y_hat, em_data_hat, y, em_data, box_width=8)
     #else:
