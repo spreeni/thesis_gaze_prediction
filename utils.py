@@ -467,12 +467,16 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
     else:
         counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1., 100), density=False)
         counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100), density=False)
+        counts_len = counts_len / len(change_len)
+        counts_deg = counts_deg / len(change_deg)
         bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
         bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
-        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'count'},
+        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'share'},
                          title='Gaze change distance', log_y=log_scale)
-        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'count'},
+        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'share'},
                          title='Gaze change orientation')
+        #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
+        fig_deg.update_yaxes(range=[0, 0.17])  # tickformat=',.0%')
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
 
