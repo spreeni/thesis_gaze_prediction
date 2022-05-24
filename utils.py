@@ -520,7 +520,7 @@ def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple
 
     observer_change_len_deg = dict()
     for observer in stacked_observer_gaze_change:
-        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], width=1280, height=720, absolute_values=False)
+        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], width=224, height=224, absolute_values=False)
         observer_change_len_deg[observer] = (change_len, change_deg)
     return observer_change_len_deg
 
@@ -539,7 +539,7 @@ def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np
 
             video_change_labels.append(gaze.copy())
 
-        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), width=1280, height=720, absolute_values=False)
+        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), width=224, height=224, absolute_values=False)
         video_change_len_deg[video] = (change_len, change_deg)
     return video_change_len_deg
 
