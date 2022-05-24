@@ -68,11 +68,13 @@ def read_label_file(
     return (labels[['x_gaze', 'y_gaze']].tolist(), em_data)
 
 
-def get_observer_from_label_path(label_path: str) -> str:
+def get_observer_and_video_from_label_path(label_path: str) -> Tuple[str, str]:
     file_name = os.path.basename(label_path)
     assert len(file_name) > 0 and '_' in file_name, f"{label_path} is not a valid label-file path."
 
-    return file_name.split('_')[0]
+    observer = file_name.split('_')[0]
+    video_name = '_'.join(file_name.split('_')[1:])[:-4]
+    return observer, video_name
 
 
 def plot_frames_with_labels(
