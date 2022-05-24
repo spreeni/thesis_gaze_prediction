@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, Type
 
 import os
 from pathlib import Path
@@ -435,7 +435,7 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_v
     # If given absolute gaze positions, first calculate gaze change at each step
     gaze_change = gaze
     if absolute_values:
-        gaze_change[1:] = np.roll(gaze, 1, axis=0)[1:]
+        gaze_change[1:] -= np.roll(gaze, 1, axis=0)[1:]
 
     # Get gaze change length and orientation for each
     change_len = np.linalg.norm(gaze_change, axis=1)
@@ -443,7 +443,7 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_v
     return change_len, change_deg
 
 
-def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, use_plotly=False):
+def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, use_plotly=False, log_scale=True):
     """
     Creates histograms of gaze change length and orientation.
 
@@ -452,23 +452,26 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
         change_deg:     Gaze change degrees as numpy array of shape (timesteps,)
         output_path:    Filepath with prefix
         use_plotly:     Flag to use Plotly; default is matplotlib
+        log_scale:      Flag to use logarithmic y-axis for change distance
     """
     if not use_plotly:
         plt.figure(figsize=(12, 8))
-        plt.hist(change_len, bins=np.linspace(0, 1.5, 100))
+        plt.hist(change_len, bins=np.linspace(0, 1., 100), density=True)
+        if log_scale:
+            plt.yscale('log')
         plt.savefig(f'{output_path}_dist.png', dpi=300)
 
         plt.figure(figsize=(12, 8))
-        plt.hist(change_deg, bins=np.linspace(0, 360, 100))
+        plt.hist(change_deg, bins=np.linspace(0, 360, 100), density=True)
         plt.savefig(f'{output_path}_deg.png', dpi=300)
     else:
-        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1.5, 100))
-        counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100))
+        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1., 100), density=False)
+        counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100), density=False)
         bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
         bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
         fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'count'},
-                         title='Gaze change distance')
-        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation', 'y': 'count'},
+                         title='Gaze change distance', log_y=log_scale)
+        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'count'},
                          title='Gaze change orientation')
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
