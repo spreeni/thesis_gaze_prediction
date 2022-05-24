@@ -25,13 +25,13 @@ _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
 #_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
-#_MODE += '_golf'
+_MODE += '_testChange'
 _CHECKPOINT_PATH = r'data/lightning_logs/version_471/checkpoints/epoch=101-step=101.ckpt'
 
-_CALC_NSS = True
+_CALC_NSS = False
 
 _SCALE_UP = True
-_SHOW_SALIENCY = True
+_SHOW_SALIENCY = False
 _PLOT_GAZE_CHANGE_HISTOGRAMS = True
 
 _CLIP_DURATION = 5
@@ -183,9 +183,11 @@ for i in range(0, samples):
     # Calculate similarity in gaze change orientation and length distribution
     change_len, change_deg = utils.get_gaze_change_dist_and_orientation(y, absolute_values=True, normalize_gaze=True)
     change_data_hat = [utils.get_gaze_change_dist_and_orientation(y_hat, absolute_values=True, normalize_gaze=True) for y_hat in y_hats]
-    metric = 'cosine_dist'
-    change_len_similarity = np.mean(metrics.calc_similarity_gaze_change_distance(change_len, change_len_hat, metric) for change_len_hat, _ in change_data_hat)
-    change_deg_similarity = np.mean(metrics.calc_similarity_gaze_change_distance(change_deg, change_deg_hat, metric) for _, change_deg_hat in change_data_hat)
+    metric = 'histogram_intersection'
+    change_len_similarity = np.mean([metrics.calc_similarity_gaze_change_distance(change_len, change_len_hat, metric) for change_len_hat, _ in change_data_hat])
+    change_deg_similarity = np.mean([metrics.calc_similarity_gaze_change_distance(change_deg, change_deg_hat, metric) for _, change_deg_hat in change_data_hat])
+    print(f"Gaze change distance distribution '{metric}' similarity:", change_len_similarity)
+    print(f"Gaze change orientation distribution '{metric}' similarity:", change_deg_similarity)
 
     # Visualize predictions over video and in comparison with groundtruth
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
