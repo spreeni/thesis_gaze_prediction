@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, Type
 
 import os
 from pathlib import Path
@@ -7,6 +7,7 @@ import numpy as np
 import numpy.lib.recfunctions as rfn
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import plotly.express as px
 import cv2
 from scipy.io.arff import loadarff
 import shutil
@@ -67,16 +68,18 @@ def read_label_file(
     return (labels[['x_gaze', 'y_gaze']].tolist(), em_data)
 
 
-def get_observer_from_label_path(label_path: str) -> str:
+def get_observer_and_video_from_label_path(label_path: str) -> Tuple[str, str]:
     file_name = os.path.basename(label_path)
     assert len(file_name) > 0 and '_' in file_name, f"{label_path} is not a valid label-file path."
 
-    return file_name.split('_')[0]
+    observer = file_name.split('_')[0]
+    video_name = '_'.join(file_name.split('_')[1:])[:-4]
+    return observer, video_name
 
 
 def plot_frames_with_labels(
         frames: np.ndarray,
-        avg_gaze_locations: np.ndarray,
+        avg_gaze_locations: Optional[np.ndarray] = None,
         avg_em_data: Optional[np.ndarray] = None,
         gaze_locations: Optional[List[List[Tuple]]] = None,
         em_data: Optional[List[List]] = None,
@@ -116,33 +119,34 @@ def plot_frames_with_labels(
     ax = plt.Axes(fig, [0., -0.05, 1., 1.])
     ax.set_axis_off()
     fig.add_axes(ax)
-    for i_frame in range(min(num_frames, len(avg_gaze_locations))):
+
+    for i_frame in tqdm(range(num_frames)):
         frame = frames[i_frame]
-        avg_gaze = avg_gaze_locations[i_frame]
 
         # Plot frame
         ax.clear()
         ax.imshow(frame)
 
         # Plot averaged label
-        color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
-        avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
-                                          linewidth=1.4, edgecolor='black', facecolor=color)
-        ax.add_patch(avg_label_box)
+        if avg_gaze_locations is not None and i_frame < len(avg_gaze_locations):
+            avg_gaze = avg_gaze_locations[i_frame]
+            color = EM_COLOR_MAP[avg_em_data[i_frame]] if avg_em_data is not None else 'r'
+            avg_label_box = patches.Rectangle(avg_gaze - box_width / 2., box_width, box_width,
+                                              linewidth=1.4, edgecolor='black', facecolor=color)
+            ax.add_patch(avg_label_box)
 
         # Plot raw labels
         raw_box_width = round(0.5 * box_width)
-        if gaze_locations is not None:
-            assert num_frames == len(
-                gaze_locations), f"Number of frames and lists of raw gaze locations needs to be the same."
+        if gaze_locations is not None and i_frame < len(gaze_locations):
             for i, gaze in enumerate(gaze_locations[i_frame]):
-                if em_data is not None:
-                    color = EM_COLOR_MAP[em_data[i_frame][i]]
-                else:
-                    color = plt.get_cmap('tab10').colors[i]
-                label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
-                                              linewidth=0.8, edgecolor='black', facecolor=color)#'none')
-                ax.add_patch(label_box)
+                if len(gaze) == 2:
+                    if em_data is not None:
+                        color = EM_COLOR_MAP[em_data[i_frame][i]]
+                    else:
+                        color = plt.get_cmap('tab10').colors[i % 10]
+                    label_box = patches.Rectangle(np.array(gaze) - raw_box_width / 2., raw_box_width, raw_box_width,
+                                                  linewidth=0.8, edgecolor='black', facecolor=color)#'none')
+                    ax.add_patch(label_box)
 
         # Update title
         title = f"Frame {i_frame} ({i_frame/fps:.2f}s)" if show_time else f"Frame {i_frame}"
@@ -229,7 +233,45 @@ def plot_gazecom_frames_with_labels(video_path: str, label_path: str, raw_label_
 
     # Visualize labels on video data
     plot_frames_with_labels(frames, avg_gaze, avg_em_data=avg_em_data, gaze_locations=raw_gaze_per_frame,
-                            em_data=raw_em_data_per_frame, fps=fps, display_speed=0.5)
+                            em_data=raw_em_data_per_frame, fps=fps, display_speed=1, save_to_directory=save_to_directory)
+
+
+def plot_gazecom_frames_with_all_observers(video_path: str, label_dir: str, plot_em_data=False, save_to_directory=None, n_observers=None):
+    """
+    Visualizes video frames with bounding boxes for all observer gaze labels of GazeCom dataset
+
+    Args:
+        video_path:         video file path (needs to be a file)
+        label_dir:          label directory with frame-wise labels
+        plot_em_data:       (Optional) Flag to highlight eye movement phase data; as default different observers will be highlighted instead
+        save_to_directory:  (Optional) Directory to which plots are to be saved to. If given, will not display plots
+        n_observers:        (Optional) Number of observers to plot; default is no limit
+    """
+    # Load frame data
+    print("load video data")
+    frames, fps = get_video_frames_from_file(video_path)
+
+    # Load frame-wise averaged label data
+    print("load frame-wise label data")
+    gazes = [[] for _ in range(len(frames))]
+    em_data = [[] for _ in range(len(frames))]
+    root_video = Path(label_dir)
+    for i, label_path in enumerate(tqdm(root_video.rglob('*'))):
+        if label_path.is_file() and (n_observers is None or i < n_observers):
+            gaze, em = read_label_file(label_path, with_video_name=True)
+            gaze = np.array(gaze).astype('int').tolist()
+            em = np.array(em).astype('int').tolist()
+            for i_frame in range(len(frames)):
+                if i_frame < len(gaze):
+                    gazes[i_frame].append(gaze[i_frame])
+                    em_data[i_frame].append(em[i_frame])
+                else:
+                    gazes[i_frame].append([])
+                    em_data[i_frame].append([])
+
+    # Visualize labels on video data
+    plot_frames_with_labels(frames, gaze_locations=gazes, em_data=em_data if plot_em_data else None, fps=fps,
+                            display_speed=1, save_to_directory=save_to_directory)
 
 
 def get_video_dimensions(filepath: str) -> Tuple[int, int]:
@@ -365,3 +407,150 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
             cwd=output_dir, shell=True)
     if delete_frames:
         shutil.rmtree(frame_dir_path)
+
+
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True):
+    """
+    Calculates the gaze change distance and orientation for given gaze positions.
+    Note that change_dist is calculated on a normalized gaze within [-1, 1] to make comparisons on different scales.
+
+    Args:
+        gaze:               Gaze positions as numpy array or list of shape (timesteps, 2)
+        width:              Max width in px; default is 224
+        height:             Max height in px; default is 224
+        absolute_values:    Flag if absolute gaze positions or gaze changes are given; default are absolute values
+        normalize_gaze:     Flag if gaze needs to be normalized; default is True
+
+    Returns:
+        change_len:         Gaze change distance as numpy array of shape (timesteps,)
+        change_deg:         Gaze change degrees as numpy array of shape (timesteps,)
+    """
+    # Normalize range to [-1, 1]
+    if normalize_gaze:
+        if absolute_values:
+            gaze = np.array(gaze) / (np.array([width, height]) / 2) - 1
+        else:
+            gaze = np.array(gaze) / np.array([width, height])
+
+    # If given absolute gaze positions, first calculate gaze change at each step
+    gaze_change = gaze
+    if absolute_values:
+        gaze_change[1:] -= np.roll(gaze, 1, axis=0)[1:]
+
+    # Get gaze change length and orientation for each
+    change_len = np.linalg.norm(gaze_change, axis=1)
+    change_deg = np.rad2deg(np.arctan2(gaze_change[:, 1], gaze_change[:, 0])) % 360
+    return change_len, change_deg
+
+
+def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, use_plotly=False, log_scale=True):
+    """
+    Creates histograms of gaze change length and orientation.
+
+    Args:
+        change_len:     Gaze change distance as numpy array of shape (timesteps,)
+        change_deg:     Gaze change degrees as numpy array of shape (timesteps,)
+        output_path:    Filepath with prefix
+        use_plotly:     Flag to use Plotly; default is matplotlib
+        log_scale:      Flag to use logarithmic y-axis for change distance
+    """
+    if not use_plotly:
+        plt.figure(figsize=(12, 8))
+        plt.hist(change_len, bins=np.linspace(0, 1., 100), density=True)
+        if log_scale:
+            plt.yscale('log')
+        plt.savefig(f'{output_path}_dist.png', dpi=300)
+
+        plt.figure(figsize=(12, 8))
+        plt.hist(change_deg, bins=np.linspace(0, 360, 100), density=True)
+        plt.savefig(f'{output_path}_deg.png', dpi=300)
+    else:
+        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1., 100), density=False)
+        counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100), density=False)
+        counts_len = counts_len / len(change_len)
+        counts_deg = counts_deg / len(change_deg)
+        bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
+        bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
+        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'share'},
+                         title='Gaze change distance', log_y=log_scale)
+        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'share'},
+                         title='Gaze change orientation')
+        #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
+        fig_deg.update_yaxes(range=[0, 0.17])  # tickformat=',.0%')
+        fig_len.write_image(f'{output_path}_dist.png', scale=2)
+        fig_deg.write_image(f'{output_path}_deg.png', scale=2)
+
+
+def get_label_data_in_directory(root_dirs: Union[str, List[str]]) -> Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+    label_data = dict()  # video -> dict(observer -> (gaze_data, em_data))
+
+    if type(root_dirs) == str:
+        root_dirs = [root_dirs]
+
+    for root_dir in root_dirs:
+        for i, label_path in enumerate(tqdm(Path(root_dir).rglob('*.txt'))):
+            if label_path.is_file():
+                observer, video = get_observer_and_video_from_label_path(label_path)
+                gaze, em_data = read_label_file(label_path, with_video_name=True)
+                gaze = np.array(gaze).astype('int')
+                em_data = np.array(em_data).astype('int')
+
+                if video not in label_data:
+                    label_data[video] = dict()
+                label_data[video][observer] = (gaze, em_data)
+
+    return label_data
+
+
+def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    label_data = get_label_data_in_directory(root_dir)
+
+    stacked_observer_gaze_change = dict()
+    for video in label_data:
+        for observer in label_data[video]:
+            gaze, _ = label_data[video][observer]
+
+            # Calculate gaze change
+            gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
+
+            if observer not in stacked_observer_gaze_change:
+                stacked_observer_gaze_change[observer] = gaze.copy()
+            else:
+                stacked_observer_gaze_change[observer] = np.concatenate([stacked_observer_gaze_change[observer], gaze])
+
+    observer_change_len_deg = dict()
+    for observer in stacked_observer_gaze_change:
+        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], width=224, height=224, absolute_values=False)
+        observer_change_len_deg[observer] = (change_len, change_deg)
+    return observer_change_len_deg
+
+
+def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    label_data = get_label_data_in_directory(root_dir)
+
+    video_change_len_deg = dict()
+    for video in label_data:
+        video_change_labels = []
+        for observer in label_data[video]:
+            gaze, _ = label_data[video][observer]
+
+            # Calculate gaze change
+            gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
+
+            video_change_labels.append(gaze.copy())
+
+        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), width=224, height=224, absolute_values=False)
+        video_change_len_deg[video] = (change_len, change_deg)
+    return video_change_len_deg
+
+
+def plot_gaze_change_dist_and_orientation_for_observers(root_dir: str, output_dir: str):
+    observer_change_len_deg = get_gaze_change_distribution_for_observers(root_dir)
+    for observer in tqdm(observer_change_len_deg):
+        plot_gaze_change_dist_and_orientation(*observer_change_len_deg[observer], f'{output_dir}/{observer}', use_plotly=True)
+
+
+def plot_gaze_change_dist_and_orientation_for_videos(root_dir: str, output_dir: str):
+    video_change_len_deg = get_gaze_change_distribution_for_videos(root_dir)
+    for video in tqdm(video_change_len_deg):
+        plot_gaze_change_dist_and_orientation(*video_change_len_deg[video], f'{output_dir}/{video}', use_plotly=True)
