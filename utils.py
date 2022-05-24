@@ -475,3 +475,78 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
                          title='Gaze change orientation')
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
+
+
+def get_label_data_in_directory(root_dirs: Union[str, List[str]]) -> Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+    label_data = dict()  # video -> dict(observer -> (gaze_data, em_data))
+
+    if type(root_dirs) == str:
+        root_dirs = [root_dirs]
+
+    for root_dir in root_dirs:
+        for i, label_path in enumerate(tqdm(Path(root_dir).rglob('*.txt'))):
+            if label_path.is_file():
+                observer, video = get_observer_and_video_from_label_path(label_path)
+                gaze, em_data = read_label_file(label_path, with_video_name=True)
+                gaze = np.array(gaze).astype('int')
+                em_data = np.array(em_data).astype('int')
+
+                if video not in label_data:
+                    label_data[video] = dict()
+                label_data[video][observer] = (gaze, em_data)
+
+    return label_data
+
+
+def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    label_data = get_label_data_in_directory(root_dir)
+
+    stacked_observer_gaze_change = dict()
+    for video in label_data:
+        for observer in label_data[video]:
+            gaze, _ = label_data[video][observer]
+
+            # Calculate gaze change
+            gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
+
+            if observer not in stacked_observer_gaze_change:
+                stacked_observer_gaze_change[observer] = gaze.copy()
+            else:
+                stacked_observer_gaze_change[observer] = np.concatenate([stacked_observer_gaze_change[observer], gaze])
+
+    observer_change_len_deg = dict()
+    for observer in stacked_observer_gaze_change:
+        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], width=1280, height=720, absolute_values=False)
+        observer_change_len_deg[observer] = (change_len, change_deg)
+    return observer_change_len_deg
+
+
+def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    label_data = get_label_data_in_directory(root_dir)
+
+    video_change_len_deg = dict()
+    for video in label_data:
+        video_change_labels = []
+        for observer in label_data[video]:
+            gaze, _ = label_data[video][observer]
+
+            # Calculate gaze change
+            gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
+
+            video_change_labels.append(gaze.copy())
+
+        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), width=1280, height=720, absolute_values=False)
+        video_change_len_deg[video] = (change_len, change_deg)
+    return video_change_len_deg
+
+
+def plot_gaze_change_dist_and_orientation_for_observers(root_dir: str, output_dir: str):
+    observer_change_len_deg = get_gaze_change_distribution_for_observers(root_dir)
+    for observer in tqdm(observer_change_len_deg):
+        plot_gaze_change_dist_and_orientation(*observer_change_len_deg[observer], f'{output_dir}/{observer}', use_plotly=True)
+
+
+def plot_gaze_change_dist_and_orientation_for_videos(root_dir: str, output_dir: str):
+    video_change_len_deg = get_gaze_change_distribution_for_videos(root_dir)
+    for video in tqdm(video_change_len_deg):
+        plot_gaze_change_dist_and_orientation(*video_change_len_deg[video], f'{output_dir}/{video}', use_plotly=True)
