@@ -370,14 +370,14 @@ class RIM(nn.Module):
         else:
             return outputs, masks, hs.view(batch_size, -1)
 
-    def forward(self, x, h=None, c=None, y_prev=None, y_hat_prev=None, seeds=None):
+    def forward(self, x, h=None, c=None, y_prev=None, y_hat_prev=None, state_seeds=None):
         """
         Input: x (seq_len, batch_size, feature_size
                h (num_layers * num_directions, batch_size, hidden_size * num_units)
                c (num_layers * num_directions, batch_size, hidden_size * num_units)
                y_prev (1, batch_size, target_size)
                y_hat_prev (1, batch_size, target_size)
-               seeds (batch_size)
+               state_seeds (batch_size)
         Output: outputs (batch_size, seqlen, hidden_size * num_units * num_directions)
                 mask (batch_size, seqlen, num_units * num_directions)
                 h(and c) (num_layer * num_directions, batch_size, hidden_size* num_units)
@@ -385,18 +385,18 @@ class RIM(nn.Module):
         if h is None:
             h = torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                 self.device)
-        if seeds is not None:
+        if state_seeds is not None:
             # Populate hidden state for first layer with random seeded state
-            h[:self.num_directions] = seeded_random_states_like(h[:self.num_directions], seeds, batch_dim=1)
+            h[:self.num_directions] = seeded_random_states_like(h[:self.num_directions], state_seeds, batch_dim=1)
         hs = list(torch.split(h, 1, 0))
         cs = None
         if self.rnn_cell == 'LSTM':
             if c is None:
                 c = torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(
                     self.device)
-            if seeds is not None:
+            if state_seeds is not None:
                 # Populate hidden state for first layer with random seeded state
-                c[:self.num_directions] = seeded_random_states_like(c[:self.num_directions], seeds, batch_dim=1)
+                c[:self.num_directions] = seeded_random_states_like(c[:self.num_directions], state_seeds, batch_dim=1)
             cs = list(torch.split(c, 1, 0))
         for n in range(self.n_layers):
             idx = n * self.num_directions

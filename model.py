@@ -55,6 +55,14 @@ def log_tensor_as_image(model, frame, name, interpolate_range=True, dataformats=
         dataformats=dataformats)
 
 
+def generate_seeds_for_batch(batch):
+    seeds = []
+    start_frames = batch['frame_indices'][0].detach().cpu().numpy()
+    for i, obs in enumerate(batch['observer']):
+        seeds.append(int(''.join(str(ord(c)) for c in obs) + str(start_frames[i])))
+    return seeds
+
+
 class GazePredictionLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, lr, batch_size, frames, input_dims, out_channels, predict_em,
                  backbone_model, fpn_only_use_last_layer, rim_hidden_size, rim_num_units, rim_k,
@@ -178,7 +186,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         self.apply(weights_init_rnn)
         self.multihead_attn._reset_parameters()
 
-    def forward(self, x, y=None, em_data=None, log_features=False):
+    def forward(self, x, y=None, em_data=None, log_features=False, state_seeds=None):
         batch_size, ch, frames, *input_dim = x.shape
         x = torch.swapaxes(x, 1, 2)
         if log_features:
@@ -248,7 +256,7 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
                 y_prev = None
                 if y is not None and i != 0:
                     y_prev = y[:, i-1, :].unsqueeze(0)
-                x, mask, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output)
+                x, mask, h, c = self.rim(x, h=h, c=c, y_prev=y_prev, y_hat_prev=output, state_seeds=state_seeds if i ==0 else None)
                 rim_activations.append(mask)
             output, attn_output_weights = self.multihead_attn(x, x, x)
             output = torch.tanh(output)
@@ -362,10 +370,11 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
             y = batch['frame_labels']
 
         # Log features every 20th step
+        seeds = generate_seeds_for_batch(batch)
         if self.global_step % 20 == 0 and LOG_DEBUG_INFO:
-            y_hat = self.forward(batch["video"], y=y, em_data=batch['em_data'], log_features=True)
+            y_hat = self.forward(batch["video"], y=y, state_seeds=seeds, em_data=batch['em_data'], log_features=True)
         else:
-            y_hat = self.forward(batch["video"], y=y)
+            y_hat = self.forward(batch["video"], y=y, state_seeds=seeds)
 
         if self.global_step % 20 == 0:
             print("y_hat:\n", y_hat[0, :, :2])
@@ -382,7 +391,8 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        y_hat = self.forward(batch["video"])
+        seeds = generate_seeds_for_batch(batch)
+        y_hat = self.forward(batch["video"], state_seeds=seeds)
         loss = self.loss(y_hat, batch)
         self.log("batch_size_val", batch["video"].shape[0], prog_bar=True)
         self.log("val_loss", loss, batch_size=batch["video"].shape[0])
@@ -403,7 +413,7 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                 fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
                 out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                lambda_reg_fix=6., lambda_reg_sacc=0.1, input_attn_heads=2, input_dropout=0.2,
+                lambda_reg_fix=0., lambda_reg_sacc=0., input_attn_heads=2, input_dropout=0.2,
                 comm_dropout=0.2, channel_wise_attention=False, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
