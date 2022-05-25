@@ -1,5 +1,10 @@
 import numpy as np
 import scipy.spatial.distance as dist
+from scipy.stats import wasserstein_distance
+
+
+def calc_wasserstein_distance(x1, x2):
+    return wasserstein_distance(x1, x2)
 
 
 def calc_similarity(x1, x2, metric):

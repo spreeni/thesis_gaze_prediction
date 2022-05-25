@@ -17,21 +17,21 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_471_single_clip"
+_OUTPUT_DIR = r"data/sample_outputs/version_507_all_vids_all_obs"
 _MODE = 'train'
 
 _DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
 #_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
-_MODE += '_testChange'
-_CHECKPOINT_PATH = r'data/lightning_logs/version_471/checkpoints/epoch=101-step=101.ckpt'
+#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
+#_MODE += '_doves'
+_CHECKPOINT_PATH = r'data/lightning_logs/version_507/checkpoints/epoch=27-step=4200.ckpt'
 
-_CALC_NSS = False
+_CALC_METRICS = False
 
 _SCALE_UP = True
-_SHOW_SALIENCY = False
+_SHOW_SALIENCY = True
 _PLOT_GAZE_CHANGE_HISTOGRAMS = True
 
 _CLIP_DURATION = 5
@@ -71,11 +71,14 @@ model = GazePredictionLightningModule(lr=1e-6, batch_size=16, frames=round(_CLIP
 em_encoder = OneHotEncoder()
 em_encoder.fit([[i] for i in range(4)])
 
-if _CALC_NSS:
+if _CALC_METRICS:
     df_nss = pd.DataFrame(columns=['video', 'observer', 'first_frame', 'last_frame', 'nss_orig', 'nss_pred', 'nss_middle', 'nss_rnd'])
+    df_change_dist = pd.DataFrame(columns=['video', 'observer', 'first_frame', 'last_frame', 'change_distance_wasserstein', 'change_orientation_wasserstein'])
+    changes_dist, changes_deg = [], []
+    changes_dist_pred, changes_deg_pred = [], []
 
-samples_per_clip = 5 if not _CALC_NSS else 1
-samples = 2 if not _CALC_NSS else 100
+samples_per_clip = 5 if not _CALC_METRICS else 1
+samples = 2 if not _CALC_METRICS else 100
 #for i, (video_name, observer, clip_start) in enumerate([
 #    ('golf', 'AAW', 5.),
 #    ('golf', 'AAW', 10.)
@@ -146,9 +149,23 @@ for i in range(0, samples):
     print("NSS middle baseline:", nss_mid)
     print("NSS random baseline:", nss_rnd, "\n")
     
-    if _CALC_NSS:
+    # Calculate similarity in gaze change orientation and length distribution
+    change_len, change_deg = utils.get_gaze_change_dist_and_orientation(y, absolute_values=True, normalize_gaze=True)
+    change_data_hat = [utils.get_gaze_change_dist_and_orientation(y_hat, absolute_values=True, normalize_gaze=True) for y_hat in y_hats]
+    change_len_similarity = np.mean([metrics.calc_wasserstein_distance(change_len, change_len_hat) for change_len_hat, _ in change_data_hat])
+    change_deg_similarity = np.mean([metrics.calc_wasserstein_distance(change_deg, change_deg_hat) for _, change_deg_hat in change_data_hat])
+    print("Gaze change distance distribution Wasserstein-distance to truth:", change_len_similarity)
+    print("Gaze change orientation distribution Wasserstein-distance to truth:", change_deg_similarity)
+
+    if _CALC_METRICS:
         df_nss = df_nss.append({'video': video_name, 'observer': observer, 'first_frame': frame_indices[0], 'last_frame': frame_indices[-1],
                             'nss_orig': nss_orig, 'nss_pred': nss, 'nss_middle': nss_mid, 'nss_rnd': nss_rnd}, ignore_index=True)
+        df_change_dist = df_change_dist.append({'video': video_name, 'observer': observer, 'first_frame': frame_indices[0], 'last_frame': frame_indices[-1],
+                            'change_distance_wasserstein': change_len_similarity, 'change_orientation_wasserstein': change_deg_similarity}, ignore_index=True)
+        changes_dist.append(change_len)
+        changes_deg.append(change_deg)
+        changes_dist_pred.append(change_data_hat[0][0])
+        changes_deg_pred.append(change_data_hat[0][1])
         continue
 
     #y_hats = np.stack(y_hats, axis=1)
@@ -180,15 +197,6 @@ for i in range(0, samples):
         color_overlay = (plt.cm.viridis(density) * 255)[:, :, :, :3]
         frames = (frames.astype(float) * 0.7 + color_overlay * 0.3).astype(int)
 
-    # Calculate similarity in gaze change orientation and length distribution
-    change_len, change_deg = utils.get_gaze_change_dist_and_orientation(y, absolute_values=True, normalize_gaze=True)
-    change_data_hat = [utils.get_gaze_change_dist_and_orientation(y_hat, absolute_values=True, normalize_gaze=True) for y_hat in y_hats]
-    metric = 'histogram_intersection'
-    change_len_similarity = np.mean([metrics.calc_similarity_gaze_change_distance(change_len, change_len_hat, metric) for change_len_hat, _ in change_data_hat])
-    change_deg_similarity = np.mean([metrics.calc_similarity_gaze_change_distance(change_deg, change_deg_hat, metric) for _, change_deg_hat in change_data_hat])
-    print(f"Gaze change distance distribution '{metric}' similarity:", change_len_similarity)
-    print(f"Gaze change orientation distribution '{metric}' similarity:", change_deg_similarity)
-
     # Visualize predictions over video and in comparison with groundtruth
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
     utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=1800, remote_machine=True,
@@ -209,7 +217,7 @@ for i in range(0, samples):
     #    filepath = f'data/sample_outputs/version_43/{i}'
     #    np.savez(filepath, frames=frames, em_data_hat=em_data_hat, y_hat=y_hat, em_data=em_data, y=y)
 
-if _CALC_NSS:
+if _CALC_METRICS:
     diff_to_orig = df_nss.nss_orig - df_nss.nss_pred
     diff_to_mid = df_nss.nss_middle - df_nss.nss_pred
     diff_to_rnd = df_nss.nss_rnd - df_nss.nss_pred
@@ -217,4 +225,17 @@ if _CALC_NSS:
     print(f"NSS (middle - prediction): {diff_to_mid.mean():.2f}+-{diff_to_mid.std():.2f}")
     print(f"NSS (random - prediction): {diff_to_rnd.mean():.2f}+-{diff_to_rnd.std():.2f}")
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
-    df_nss.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_nss.csv'), index=False)
+    #df_nss.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_nss.csv'), index=False)
+
+    
+    change_len_similarity = metrics.calc_wasserstein_distance(np.concatenate(changes_dist), np.concatenate(changes_dist_pred))
+    change_deg_similarity = metrics.calc_wasserstein_distance(np.concatenate(changes_deg), np.concatenate(changes_deg_pred))
+    print(f"Wasserstein distance for change distance distribution (truth vs prediction): {change_len_similarity:.6f}")
+    print(f"Wasserstein distance for change orientation distribution (truth vs prediction): {change_deg_similarity:.6f}")
+    change_len_similarity_no_change = metrics.calc_wasserstein_distance(np.concatenate(changes_dist), [0])
+    change_deg_similarity_uniform = metrics.calc_wasserstein_distance(np.concatenate(changes_deg), np.arange(360))
+    print(f"Wasserstein distance for change distance distribution (truth vs no change): {change_len_similarity_no_change:.6f}")
+    print(f"Wasserstein distance for change orientation distribution (truth vs uniform orientation): {change_deg_similarity_uniform:.6f}")
+    df_change_dist = df_change_dist.append({'video': 'mean', 'change_distance_wasserstein': change_len_similarity, 'change_orientation_wasserstein': change_deg_similarity}, ignore_index=True)
+    df_change_dist = df_change_dist.append({'video': 'baseline', 'change_distance_wasserstein': change_len_similarity_no_change, 'change_orientation_wasserstein': change_deg_similarity_uniform}, ignore_index=True)
+    df_change_dist.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_change_metrics.csv'), index=False)
