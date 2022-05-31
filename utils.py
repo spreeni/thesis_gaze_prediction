@@ -484,7 +484,7 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
             ticktext=['0°', '90°', '180°', '270°', '360°']
         )
         #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
-        fig_deg.update_yaxes(range=[0, 0.17])  # tickformat=',.0%')
+        fig_deg.update_yaxes(range=[0, 0.05])  # tickformat=',.0%')
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
 
