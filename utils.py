@@ -409,17 +409,18 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
         shutil.rmtree(frame_dir_path)
 
 
-def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True):
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=True):
     """
     Calculates the gaze change distance and orientation for given gaze positions.
     Note that change_dist is calculated on a normalized gaze within [-1, 1] to make comparisons on different scales.
 
     Args:
-        gaze:               Gaze positions as numpy array or list of shape (timesteps, 2)
-        width:              Max width in px; default is 224
-        height:             Max height in px; default is 224
-        absolute_values:    Flag if absolute gaze positions or gaze changes are given; default are absolute values
-        normalize_gaze:     Flag if gaze needs to be normalized; default is True
+        gaze:                       Gaze positions as numpy array or list of shape (timesteps, 2)
+        width:                      Max width in px; default is 224
+        height:                     Max height in px; default is 224
+        absolute_values:            Flag if absolute gaze positions or gaze changes are given; default are absolute values
+        normalize_gaze:             Flag if gaze needs to be normalized; default is True
+        filter_fixations_for_deg:   Flag if fixations should be filtered for orientation; default is True
 
     Returns:
         change_len:         Gaze change distance as numpy array of shape (timesteps,)
@@ -440,6 +441,8 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_v
     # Get gaze change length and orientation for each
     change_len = np.linalg.norm(gaze_change, axis=1)
     change_deg = np.rad2deg(np.arctan2(gaze_change[:, 1], gaze_change[:, 0])) % 360
+    if filter_fixations_for_deg:
+        change_deg = change_deg[change_len > 0.05]
     return change_len, change_deg
 
 
@@ -475,6 +478,11 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
                          title='Gaze change distance', log_y=log_scale)
         fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'share'},
                          title='Gaze change orientation')
+        fig_deg.update_xaxes(
+            tickmode='array',
+            tickvals=[0, 90, 180, 270, 360],
+            ticktext=['0°', '90°', '180°', '270°', '360°']
+        )
         #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
         fig_deg.update_yaxes(range=[0, 0.17])  # tickformat=',.0%')
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
