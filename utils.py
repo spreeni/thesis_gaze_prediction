@@ -409,15 +409,16 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
         shutil.rmtree(frame_dir_path)
 
 
-def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=True):
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, to_visual_angle=True, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=True):
     """
     Calculates the gaze change distance and orientation for given gaze positions.
-    Note that change_dist is calculated on a normalized gaze within [-1, 1] to make comparisons on different scales.
+    Note that change_dist is either calculated as a visual angle or a normalized gaze within [-1, 1] to make comparisons on different scales.
 
     Args:
         gaze:                       Gaze positions as numpy array or list of shape (timesteps, 2)
         width:                      Max width in px; default is 224
         height:                     Max height in px; default is 224
+        to_visual_angle:            Flag if gaze should be transformed to visual angle; default is True
         absolute_values:            Flag if absolute gaze positions or gaze changes are given; default are absolute values
         normalize_gaze:             Flag if gaze needs to be normalized; default is True
         filter_fixations_for_deg:   Flag if fixations should be filtered for orientation; default is True
@@ -426,12 +427,19 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_v
         change_len:         Gaze change distance as numpy array of shape (timesteps,)
         change_deg:         Gaze change degrees as numpy array of shape (timesteps,)
     """
-    # Normalize range to [-1, 1]
-    if normalize_gaze:
+    gaze = np.array(gaze)
+    # Either transform to visual angle...
+    if to_visual_angle:
+        width_cm, height_cm, dist_cm = 40, 22.5, 45
+        gaze_deg_x, gaze_deg_y = px_to_visual_angle(gaze[:, 0], gaze[:, 1], width, height, width_cm, height_cm, dist_cm)
+        gaze[:, 0] = gaze_deg_x
+        gaze[:, 1] = gaze_deg_y
+    # ...or normalize range to [-1, 1]
+    elif normalize_gaze:
         if absolute_values:
-            gaze = np.array(gaze) / (np.array([width, height]) / 2) - 1
+            gaze = gaze / (np.array([width, height]) / 2) - 1
         else:
-            gaze = np.array(gaze) / np.array([width, height])
+            gaze = gaze / np.array([width, height])
 
     # If given absolute gaze positions, first calculate gaze change at each step
     gaze_change = gaze
@@ -474,17 +482,17 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
         counts_deg = counts_deg / len(change_deg)
         bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
         bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
-        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'share'},
-                         title='Gaze change distance', log_y=log_scale)
-        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'share'},
-                         title='Gaze change orientation')
-        fig_deg.update_xaxes(
-            tickmode='array',
-            tickvals=[0, 90, 180, 270, 360],
-            ticktext=['0°', '90°', '180°', '270°', '360°']
-        )
+        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance as visual angle [°]', 'y': 'share'},
+                         log_y=log_scale)#, title='Gaze change distance')
+        fig_deg = px.bar_polar(r=counts_deg, theta=bins_deg, direction='counterclockwise', start_angle=0,
+                         labels={'x': 'change orientation [°]', 'y': 'share'})#, title='Gaze change orientation')
+
         #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
-        fig_deg.update_yaxes(range=[0, 0.05])  # tickformat=',.0%')
+        fig_deg.update_layout(
+            polar = dict(
+                radialaxis = dict(range=[0, 0.05], tickformat=',.0%')
+            )
+        )
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
 
