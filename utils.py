@@ -414,7 +414,7 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
         shutil.rmtree(frame_dir_path)
 
 
-def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, to_visual_angle=True, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=True):
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, to_visual_angle=True, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=False):
     """
     Calculates the gaze change distance and orientation for given gaze positions.
     Note that change_dist is either calculated as a visual angle or a normalized gaze within [-1, 1] to make comparisons on different scales.
@@ -453,8 +453,8 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, to_visual_
     # Get gaze change length and orientation for each
     change_len = np.linalg.norm(gaze_change, axis=1)
     change_deg = np.rad2deg(np.arctan2(gaze_change[:, 1], gaze_change[:, 0])) % 360
-    if filter_fixations_for_deg:
-        change_deg = change_deg[change_len > 3]
+    if filter_fixations_for_deg and sum(change_len > 2) > 0:
+        change_deg = change_deg[change_len > 2]
     return change_len, change_deg
 
 
@@ -497,10 +497,12 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
             ticktext=['0°', '22.5°', '45°', '67.5°', '90°']
         )
         #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
+        fig_deg.update_layout(margin=dict(l=0,r=0,b=0,t=0))
         fig_deg.update_layout(
             polar=dict(
                 radialaxis=dict(tickformat=',.1%')#, range=[0, 0.1]
-            )
+            ),
+            margin=dict(l=0,r=0,b=0,t=0)
         )
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
