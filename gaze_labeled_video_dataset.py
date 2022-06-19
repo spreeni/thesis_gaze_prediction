@@ -125,7 +125,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         Returns:
             Number of observers in dataset.
         """
-        return len({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
+        return len({utils.get_observer_and_video_from_label_path(label_path)[0] for _, label_path in self._video_and_label_paths})
 
     @property
     def video_observer_combinations(self) -> VideosObserversPaths:
@@ -149,7 +149,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
         Returns:
             List of observers in dataset.
         """
-        return list({utils.get_observer_from_label_path(label_path) for _, label_path in self._video_and_label_paths})
+        return list({utils.get_observer_and_video_from_label_path(label_path)[0] for _, label_path in self._video_and_label_paths})
 
     def _build_sample_dict(self, loaded_clip, loaded_frame_labels, loaded_em_data, video_name, observer,
                            video_index=None, clip_index=None, aug_index=None):
@@ -331,7 +331,7 @@ class GazeLabeledVideoDataset(torch.utils.data.IterableDataset):
                     continue
 
             try:  # TODO: Check that labels exist for frame_indices
-                observer = utils.get_observer_from_label_path(label_path)
+                observer = utils.get_observer_and_video_from_label_path(label_path)[0]
                 sample_dict = self._build_sample_dict(self._loaded_clip, self._loaded_frame_labels,
                                                       self._loaded_em_data, video.name,
                                                       observer, video_index, clip_index, aug_index)

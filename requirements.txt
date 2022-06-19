@@ -4,10 +4,12 @@
 #ipykernel
 #ipywidgets
 #jupyter
+kaleido
 matplotlib
 notebook
 numpy
 opencv-python
+plotly
 pytorch-lightning
 pytorchvideo
 scikit-learn

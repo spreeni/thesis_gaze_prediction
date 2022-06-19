@@ -537,7 +537,7 @@
         - Etwas schnelles einbauen, auf kleinerem Datenset bzw. Änderungen einfach auf untrainiertem Modell ausprobieren
         - Woran liegt dies? Untrainiert sollten Scanpaths unabhängig voneinander sein
     - Saliency Map über Video legen, um zu sehen, worauf Observer achten
-- 27.04
+- 27.04.22
     - Fortschritts-Update:
         - Overlay von gaussian density über video samples implementiert
         - Sampling von spezifischen Clips implementiert
@@ -562,3 +562,92 @@
     - Prof. Obermayer über die Arbeit rübergucken lassen
         - Kurze Präsentation anfertigen (sehr exakt sein!)
     - Verteidigung möglicherweise am 01.07.22, 2 Wochen nach Abgabe
+- 04.05.22
+    - Fortschritts-Update:
+        - Verschiedene Backbone-Netze eingebaut
+            - Ähnlicher loss mit größeren Netzen (z.B. DenseNet, EfficientNet B7)
+        - Positional Encoding als lernbaren Parameter eingebaut
+            - Liefert allerdings schlechtere Ergebnisse im Training
+        - Aktive RIM units können jetzt geloggt werden
+        - Auf gaze changes trainiert, aber kein Erfolg
+    - Anstatt von Positional Encoding Conv LSTM möglich in RIM
+        - Group convolution benutzen
+    - Wie kann Input attention gut visualisiert werden?
+        - Gradient angucken (1 als input)
+    - Clip duration kürzer machen (analog Deepgaze → 4 letzte Sakkaden)
+        - Auch auf untrainiertem Netzwerk Einfluss testen
+        - Deepgaze sagt nur Sakkaden vorher, können mehrere Frames dazwischen sein
+    - Gaze changes predicten
+        - Vielleicht ganz ohne arctanh/tanh Transformation
+            - Dann diagonal zurücksetzen falls es out-of-bounds ist
+        - Erstmal nur auf cumsum-loss trainieren (beinhaltet individuellen Loss bereits)
+    - Gaussian mixture einbauen?
+        - Aufgrund der verbleibenden Zeit niedrigere Prio, lieber in der Arbeit dann diskutieren
+    - Einmal sequentiell, einmal im gleichen Batch gleichen Input testen, könnte Fehler aufzeigen
+    - 1 video, all observers trainieren, prüfen ob dort die Problematik ähnlich ist
+    - Kurze Präsentation für Prof. Obermayer nächste Woche Donnerstag 14 Uhr
+    - Wie kann erster LSTM hidden state gesetzt werden?
+        - Nur in erstem RIM layer setzen
+        - Nur hidden state, nicht cell state (fließt nicht in Input attention ein)
+        1. Trainieren abhängig von observer(, video, clip_start)
+        2. Alternativ einfach ID als seed und zufällig generieren
+        3. Oder Observer-Information in query einfließen lassen
+            1. h_t konkatenieren mit Observer-Embedding, W_Q erweitern
+        4. Dropout-Seed als Observer (+ Video, start-frame) setzen
+            1. problematisch, da pytorch-seed nur global gesetzt werden kann
+    - Vielleicht mehrere RIM-Layer ausprobieren
+- 11.05.22
+    - Fortschritts-Update:
+        - 2 RIM units trainiert, allerdings keine Spezialisierung in Fixation/Sakkade erkennbar
+            - RIM activations und eye movement classification werden geloggt
+        - Bug in Positional Encoding gefixt, lernt aber keine intuitiven Maps
+        - Mit clip duration=0.5s trainiert
+            - Loss bleibt sehr hoch → Vermutlich auch wegen h_0=0, hat weniger Zeit den hidden state zu bilden
+        - Präsentation für Prof. Obermayer aufgebaut
+            - NSS score über 100 random clips berechnet
+        - Gradient durch Input attention visualisiert
+            - Sieht leider zufällig verteilt aus, keine Objekte erkennbar
+                - Verschwindet Gradient vielleicht und wird die Input attention so nicht trainiert?
+        - 2 Rim layer ausprobiert → Keine Verbesserung
+        - Gaze change prediction funktioniert immer noch gar nicht
+            - Möglicherweise Code auf Bugs checken?
+    - RIM activations mit n=2 noch einmal auf nur einem Clip overfitten, wo Fixation und Sakkade auch sichtbar sind
+        - RIM Aktivierungen und Eye movement Klassifikation in ein Plot packen, damit Korrelationen besser sichtbar sind
+    - Wenig Frames  mit Sakkaden, unbalanciertes Datenset
+        - Vielleicht loss für Sakkaden höher gewichten
+            - Regularisierung kann problematisch sein, da irgenwann die Regularisierung für Sakkaden über MSE zur ground truth überwiegt
+            - MSE-loss verschieden gewichten für Sakkade und Fixation/SP
+    - NSS scores als Linien für verschiedene Videos plotten
+        - Checken ob Differenz einfach zwischen NSS-scores berechnet werden kann (log-likelihood?)
+    - Einmal ganze Videos samplen
+        - Falls Visualisierung lange dauert, einfach Clips aus Output samplen
+    - Input attention
+        - Wird Gradient verloren, trotz retain_graph=True
+        - Einheitliche Farbskala in Gradient Visualisierung, damit wenigstens Attention über Channel betrachtet werden kann
+    - Gibt es andere Metriken für Scanpath, welche Bewegungs-Dynamiken besser betrachten?
+        - Wie hat DeepGaze dies ausgewertet?
+        - Normalerweise oft über Anteil Sakkade/Fixation, allerdings Klassifikation schwierig solange Bewegungs-Dynamik nicht passt
+            - Stattdessen Histogramm von gaze changes / Winkeln betrachten
+                - Falls es zu viele kleine Werte gibt, log-scale oder threshholding anwenden
+- 25.05.22
+    - Fortschritts-Update:
+        - Viele Paper gelesen, an Arbeit geschrieben
+        - Gaze change Verteilungs-Ähnlichkeit als Metrik eingeführt
+        - Mit Random States seeded nach (observer, start_frame) gefittet, aber wenig Veränderung sichtbar
+        - RIM activations mit n=2 noch einmal auf nur einem Clip overfittet, aber Spzialisierung auf Fixation und Sakkade nicht sichtbar
+        - Gaze change prediction erneut versucht, auch auf main-branch, aber scheint wirklich einfach nicht lernen zu wollen
+    - Besprechung von Präsentation vom 12.05.
+    - Histogramm über gaze change Länge/Orientierung erstellt
+        - Möglicherweise Filtern bei Orientierung (ab bestimmter Länge, da Fixation-Orientierung eher noise ist)
+        - Ticks verändern zu 90°-Schritten für Lesbarkeit
+    - Anstatt bisheriger Sakkaden-Regularisierung möglicherweise einfach Sakkaden-MSE höher gewichten
+    - Bisherige Struktur der Arbeit
+        - Für Diskussion-Section in der Arbeit: Mixture Models diskutieren
+        - Background-Section eher high-level aufbauen, keine mathematischen Details aufzählen
+        - Experiments-Section einfügen, immer Experiment + Ergebnis durchgehen
+        - Teacher Forcing in eigene Section packen
+        - Verschiedene Daten-Partitionen (1 vid+1 obs, 1 vid+all obs…) als eigene Section bei Methods bringen, mit ganzem Prozess (Zuerst Overfitten..)
+        - Experiment-Discussion in “Results”
+        - Conclusion → knackige Zusammenfassung, nicht beschreiben wie
+    - Mutual information / Wasserstein1-Distanz verwenden als Metrik über Abstand bei gaze changes
+        - Buckets sind geordnet, ist Distanz zwischen Wahrscheinlichkeitsverteilungen
