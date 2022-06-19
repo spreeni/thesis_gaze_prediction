@@ -31,6 +31,11 @@ EM_COLOR_MAP = {
     3: 'blue'
 }
 
+# GazeCom screen viewing parameters
+WIDTH_CM = 40
+HEIGHT_CM = 22.5
+DIST_CM = 45
+
 
 def read_label_file(
         file_path: str,
@@ -409,28 +414,36 @@ def create_movie_from_frames(output_dir, frame_dir, output_name, naming_pattern=
         shutil.rmtree(frame_dir_path)
 
 
-def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_values=True, normalize_gaze=True):
+def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, to_visual_angle=True, absolute_values=True, normalize_gaze=True, filter_fixations_for_deg=False):
     """
     Calculates the gaze change distance and orientation for given gaze positions.
-    Note that change_dist is calculated on a normalized gaze within [-1, 1] to make comparisons on different scales.
+    Note that change_dist is either calculated as a visual angle or a normalized gaze within [-1, 1] to make comparisons on different scales.
 
     Args:
-        gaze:               Gaze positions as numpy array or list of shape (timesteps, 2)
-        width:              Max width in px; default is 224
-        height:             Max height in px; default is 224
-        absolute_values:    Flag if absolute gaze positions or gaze changes are given; default are absolute values
-        normalize_gaze:     Flag if gaze needs to be normalized; default is True
+        gaze:                       Gaze positions as numpy array or list of shape (timesteps, 2)
+        width:                      Max width in px; default is 224
+        height:                     Max height in px; default is 224
+        to_visual_angle:            Flag if gaze should be transformed to visual angle; default is True
+        absolute_values:            Flag if absolute gaze positions or gaze changes are given; default are absolute values
+        normalize_gaze:             Flag if gaze needs to be normalized; default is True
+        filter_fixations_for_deg:   Flag if fixations should be filtered for orientation; default is True
 
     Returns:
         change_len:         Gaze change distance as numpy array of shape (timesteps,)
         change_deg:         Gaze change degrees as numpy array of shape (timesteps,)
     """
-    # Normalize range to [-1, 1]
-    if normalize_gaze:
+    gaze = np.array(gaze)
+    # Either transform to visual angle...
+    if to_visual_angle:
+        gaze_deg_x, gaze_deg_y = px_to_visual_angle(gaze[:, 0], gaze[:, 1], width, height, WIDTH_CM, HEIGHT_CM, DIST_CM)
+        gaze[:, 0] = gaze_deg_x
+        gaze[:, 1] = gaze_deg_y
+    # ...or normalize range to [-1, 1]
+    elif normalize_gaze:
         if absolute_values:
-            gaze = np.array(gaze) / (np.array([width, height]) / 2) - 1
+            gaze = gaze / (np.array([width, height]) / 2) - 1
         else:
-            gaze = np.array(gaze) / np.array([width, height])
+            gaze = gaze / np.array([width, height])
 
     # If given absolute gaze positions, first calculate gaze change at each step
     gaze_change = gaze
@@ -440,6 +453,8 @@ def get_gaze_change_dist_and_orientation(gaze, width=224, height=224, absolute_v
     # Get gaze change length and orientation for each
     change_len = np.linalg.norm(gaze_change, axis=1)
     change_deg = np.rad2deg(np.arctan2(gaze_change[:, 1], gaze_change[:, 0])) % 360
+    if filter_fixations_for_deg and sum(change_len > 2) > 0:
+        change_deg = change_deg[change_len > 2]
     return change_len, change_deg
 
 
@@ -465,18 +480,30 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
         plt.hist(change_deg, bins=np.linspace(0, 360, 100), density=True)
         plt.savefig(f'{output_path}_deg.png', dpi=300)
     else:
-        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 1., 100), density=False)
+        counts_len, bins_len = np.histogram(change_len, bins=np.linspace(0, 90, 100), density=False)
         counts_deg, bins_deg = np.histogram(change_deg, bins=np.linspace(0, 360, 100), density=False)
         counts_len = counts_len / len(change_len)
         counts_deg = counts_deg / len(change_deg)
         bins_len = 0.5 * (bins_len[:-1] + bins_len[1:])
         bins_deg = 0.5 * (bins_deg[:-1] + bins_deg[1:])
-        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance', 'y': 'share'},
-                         title='Gaze change distance', log_y=log_scale)
-        fig_deg = px.bar(x=bins_deg, y=counts_deg, labels={'x': 'change orientation [°]', 'y': 'share'},
-                         title='Gaze change orientation')
+        fig_len = px.bar(x=bins_len, y=counts_len, labels={'x': 'change distance as visual angle [°]', 'y': 'share'},
+                         log_y=log_scale)#, title='Gaze change distance')
+        fig_deg = px.bar_polar(r=counts_deg, theta=bins_deg, direction='counterclockwise', start_angle=0,
+                         labels={'x': 'change orientation [°]', 'y': 'share'})#, title='Gaze change orientation')
+
+        fig_len.update_xaxes(
+            tickmode='array',
+            tickvals=[0, 22.5, 45, 67.5, 90],
+            ticktext=['0°', '22.5°', '45°', '67.5°', '90°']
+        )
         #fig_len.update_yaxes(range=[0, 1.1])  # tickformat=',.0%')
-        fig_deg.update_yaxes(range=[0, 0.17])  # tickformat=',.0%')
+        fig_deg.update_layout(margin=dict(l=0,r=0,b=0,t=0))
+        fig_deg.update_layout(
+            polar=dict(
+                radialaxis=dict(tickformat=',.1%')#, range=[0, 0.1]
+            ),
+            margin=dict(l=0,r=0,b=0,t=0)
+        )
         fig_len.write_image(f'{output_path}_dist.png', scale=2)
         fig_deg.write_image(f'{output_path}_deg.png', scale=2)
 
@@ -510,6 +537,11 @@ def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple
         for observer in label_data[video]:
             gaze, _ = label_data[video][observer]
 
+            # Transform to visual angle
+            gaze_deg_x, gaze_deg_y = px_to_visual_angle(gaze[:, 0], gaze[:, 1], 1280, 720, WIDTH_CM, HEIGHT_CM, DIST_CM)
+            gaze[:, 0] = gaze_deg_x
+            gaze[:, 1] = gaze_deg_y
+
             # Calculate gaze change
             gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
 
@@ -520,7 +552,7 @@ def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple
 
     observer_change_len_deg = dict()
     for observer in stacked_observer_gaze_change:
-        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], width=224, height=224, absolute_values=False)
+        change_len, change_deg = get_gaze_change_dist_and_orientation(stacked_observer_gaze_change[observer], to_visual_angle=False, absolute_values=False, normalize_gaze=False)
         observer_change_len_deg[observer] = (change_len, change_deg)
     return observer_change_len_deg
 
@@ -534,12 +566,17 @@ def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np
         for observer in label_data[video]:
             gaze, _ = label_data[video][observer]
 
+            # Transform to visual angle
+            gaze_deg_x, gaze_deg_y = px_to_visual_angle(gaze[:, 0], gaze[:, 1], 1280, 720, WIDTH_CM, HEIGHT_CM, DIST_CM)
+            gaze[:, 0] = gaze_deg_x
+            gaze[:, 1] = gaze_deg_y
+
             # Calculate gaze change
             gaze[1:] -= np.roll(gaze, 1, axis=0)[1:]
 
             video_change_labels.append(gaze.copy())
 
-        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), width=224, height=224, absolute_values=False)
+        change_len, change_deg = get_gaze_change_dist_and_orientation(np.concatenate(video_change_labels), to_visual_angle=False, absolute_values=False, normalize_gaze=False)
         video_change_len_deg[video] = (change_len, change_deg)
     return video_change_len_deg
 

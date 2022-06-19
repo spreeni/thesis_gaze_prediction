@@ -199,7 +199,7 @@ for i in range(0, samples):
 
     # Visualize predictions over video and in comparison with groundtruth
     utils.plot_frames_with_labels(frames, y, em_data, np.stack(y_hats, axis=1), em_data_hats, box_width=8, save_to_directory=save_dir)
-    utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}.mp4", fps=10, width_px=1800, remote_machine=True,
+    utils.create_movie_from_frames(_OUTPUT_DIR, str(i), f"{_MODE}_{i}_{video_name}.mp4", fps=10, width_px=1800, remote_machine=True,
                                    delete_frames=True)
 
     # Save metrics and metadata
@@ -225,11 +225,13 @@ if _CALC_METRICS:
     print(f"NSS (middle - prediction): {diff_to_mid.mean():.2f}+-{diff_to_mid.std():.2f}")
     print(f"NSS (random - prediction): {diff_to_rnd.mean():.2f}+-{diff_to_rnd.std():.2f}")
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
-    #df_nss.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_nss.csv'), index=False)
+    df_nss.to_csv(os.path.join(_OUTPUT_DIR, f'{_MODE}_nss.csv'), index=False)
 
-    
+
     change_len_similarity = metrics.calc_wasserstein_distance(np.concatenate(changes_dist), np.concatenate(changes_dist_pred))
     change_deg_similarity = metrics.calc_wasserstein_distance(np.concatenate(changes_deg), np.concatenate(changes_deg_pred))
+    utils.plot_gaze_change_dist_and_orientation(np.concatenate(changes_dist), np.concatenate(changes_deg), f"{_OUTPUT_DIR}/{_MODE}_all_change_similarity", use_plotly=True)
+    utils.plot_gaze_change_dist_and_orientation(np.concatenate(changes_dist_pred), np.concatenate(changes_deg_pred), f"{_OUTPUT_DIR}/{_MODE}_all_change_similarity_pred", use_plotly=True)
     print(f"Wasserstein distance for change distance distribution (truth vs prediction): {change_len_similarity:.6f}")
     print(f"Wasserstein distance for change orientation distribution (truth vs prediction): {change_deg_similarity:.6f}")
     change_len_similarity_no_change = metrics.calc_wasserstein_distance(np.concatenate(changes_dist), [0])

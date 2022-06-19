@@ -288,14 +288,19 @@ class GazePredictionLightningModule(pytorch_lightning.LightningModule):
 
         # Gaze regularization loss: During saccades gaze should move much, otherwise jitter is punished
         # First timepoint is ignored as it does not have a previous comparison
+        if train_step:
+            self.log("train_loss_mse", loss, prog_bar=True)
         fix_sp[0, 0] = False
         saccades[0, 0] = False
-        loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
-        loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
+        #loss_reg_fix_sp = self.lambda_reg_fix * F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
+        #loss_reg_sacc = -self.lambda_reg_sacc * F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
+        loss_reg_fix_sp = 1./self.lambda_reg_fix + F.mse_loss(y_hat[:, :, :2][fix_sp], y_hat[:, :, :2][torch.roll(fix_sp, -1, 1)])
+        loss_reg_sacc = 1./self.lambda_reg_sacc + F.l1_loss(y_hat[:, :, :2][saccades], y_hat[:, :, :2][torch.roll(saccades, -1, 1)])
         if train_step:
             self.log("reg_loss_fix", loss_reg_fix_sp, prog_bar=True)
             self.log("reg_loss_sacc", loss_reg_sacc, prog_bar=True)
-        loss += loss_reg_fix_sp + loss_reg_sacc
+        #loss += loss_reg_fix_sp + loss_reg_sacc
+        loss *= loss_reg_fix_sp / loss_reg_sacc
 
         # Eye movement classification loss
         if self.predict_em:
@@ -413,8 +418,8 @@ def train_model(data_path: str, clip_duration: float, batch_size: int, num_worke
                 fpn_only_use_last_layer=True, rim_hidden_size=400, rim_num_units=6, rim_k=4, rnn_cell='LSTM', rim_layers=1,
                 out_attn_heads=2, p_teacher_forcing=0.3, n_teacher_vals=50, weight_init='xavier_normal', 
                 gradient_clip_val=1., gradient_clip_algorithm='norm', mode='RIM', loss_fn='mse_loss',
-                lambda_reg_fix=0., lambda_reg_sacc=0., input_attn_heads=2, input_dropout=0.2,
-                comm_dropout=0.2, channel_wise_attention=False, train_checkpoint=None):
+                lambda_reg_fix=1000, lambda_reg_sacc=10, input_attn_heads=2, input_dropout=0.,
+                comm_dropout=0., channel_wise_attention=False, train_checkpoint=None):
     """
     Train or tune the model on the data in data_path.
     """

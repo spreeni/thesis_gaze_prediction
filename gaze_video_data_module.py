@@ -32,7 +32,7 @@ TRAIN_TRANSFORM = Compose(
                 [
                     #UniformTemporalSubsample(8),
                     Lambda(lambda x: x / 255.0),
-                    Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                    Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                     #RandomHorizontalFlip(p=0.5),
                     #Grayscale()
                 ]
@@ -49,7 +49,7 @@ VAL_TRANSFORM = Compose(
                 [
                     #UniformTemporalSubsample(8),
                     Lambda(lambda x: x / 255.0),
-                    Normalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225)),
+                    Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
                     #Grayscale()
                 ]
             ),

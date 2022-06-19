@@ -629,3 +629,25 @@
         - Normalerweise oft über Anteil Sakkade/Fixation, allerdings Klassifikation schwierig solange Bewegungs-Dynamik nicht passt
             - Stattdessen Histogramm von gaze changes / Winkeln betrachten
                 - Falls es zu viele kleine Werte gibt, log-scale oder threshholding anwenden
+- 25.05.22
+    - Fortschritts-Update:
+        - Viele Paper gelesen, an Arbeit geschrieben
+        - Gaze change Verteilungs-Ähnlichkeit als Metrik eingeführt
+        - Mit Random States seeded nach (observer, start_frame) gefittet, aber wenig Veränderung sichtbar
+        - RIM activations mit n=2 noch einmal auf nur einem Clip overfittet, aber Spzialisierung auf Fixation und Sakkade nicht sichtbar
+        - Gaze change prediction erneut versucht, auch auf main-branch, aber scheint wirklich einfach nicht lernen zu wollen
+    - Besprechung von Präsentation vom 12.05.
+    - Histogramm über gaze change Länge/Orientierung erstellt
+        - Möglicherweise Filtern bei Orientierung (ab bestimmter Länge, da Fixation-Orientierung eher noise ist)
+        - Ticks verändern zu 90°-Schritten für Lesbarkeit
+    - Anstatt bisheriger Sakkaden-Regularisierung möglicherweise einfach Sakkaden-MSE höher gewichten
+    - Bisherige Struktur der Arbeit
+        - Für Diskussion-Section in der Arbeit: Mixture Models diskutieren
+        - Background-Section eher high-level aufbauen, keine mathematischen Details aufzählen
+        - Experiments-Section einfügen, immer Experiment + Ergebnis durchgehen
+        - Teacher Forcing in eigene Section packen
+        - Verschiedene Daten-Partitionen (1 vid+1 obs, 1 vid+all obs…) als eigene Section bei Methods bringen, mit ganzem Prozess (Zuerst Overfitten..)
+        - Experiment-Discussion in “Results”
+        - Conclusion → knackige Zusammenfassung, nicht beschreiben wie
+    - Mutual information / Wasserstein1-Distanz verwenden als Metrik über Abstand bei gaze changes
+        - Buckets sind geordnet, ist Distanz zwischen Wahrscheinlichkeitsverteilungen
