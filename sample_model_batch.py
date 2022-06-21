@@ -9,7 +9,6 @@ from pytorchvideo.data import make_clip_sampler
 from sklearn.preprocessing import OneHotEncoder
 from tqdm.auto import tqdm
 
-
 import utils
 import metrics
 import metrics_nss
@@ -19,18 +18,8 @@ from model import GazePredictionLightningModule
 
 
 #_PLOT_RESULTS = False
-_OUTPUT_DIR = r"data/sample_outputs/version_533_single_clip"
-_MODE = 'train'
 
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/all_videos_single_observer/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video_all_observers/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_video/{_MODE}'
-#_DATA_PATH = f'data/GazeCom/movies_m2t_224x224/single_clip/{_MODE}'
-#_MODE += '_doves'
-_CHECKPOINT_PATH = r'data/lightning_logs/version_533/checkpoints/epoch=200-step=200.ckpt'
-
-_CALC_METRICS = True
+_TEACHER_FORCING_ON_INFERENCE = True
 
 _SCALE_UP = True
 _SHOW_SALIENCY = True
@@ -42,7 +31,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 pbar_outer = tqdm([
     # dataset in ['single_clip', 'single_video', 'single_video_all_observers', 'all_videos_single_observer', 'all_videos_all_observers']
-    #(r'data/lightning_logs/version_534/checkpoints/epoch=149-step=149.ckpt', r'data/sample_outputs/version_534_500', 'all_videos_single_observer'), #all_videos_all_observers
+    (r'data/lightning_logs/version_534/checkpoints/epoch=149-step=149.ckpt', r'data/sample_outputs/version_534_teacher', 'all_videos_single_observer'), #all_videos_all_observers
     #(r'data/lightning_logs/version_533/checkpoints/epoch=200-step=200.ckpt', r'data/sample_outputs/version_533', 'single_clip'), #all_videos_all_observers
     #(r'data/lightning_logs/version_536/checkpoints/epoch=135-step=543.ckpt', r'data/sample_outputs/version_536', 'single_video_all_observers'), #all_videos_all_observers
     #(r'data/lightning_logs/version_549/checkpoints/epoch=200-step=200.ckpt', r'data/sample_outputs/version_549', 'all_videos_single_observer'),
@@ -64,6 +53,7 @@ pbar_outer = tqdm([
     #(r'data/lightning_logs/version_572/checkpoints/epoch=200-step=200.ckpt', r'data/sample_outputs/version_572', 'all_videos_single_observer', 2),
     #(r'data/lightning_logs/version_573/checkpoints/epoch=200-step=401.ckpt', r'data/sample_outputs/version_573', 'all_videos_single_observer', 10),
     #(r'data/lightning_logs/version_574/checkpoints/epoch=161-step=161.ckpt', r'data/sample_outputs/version_574', 'single_clip', 1.5),
+    #(r'data/lightning_logs/version_579/checkpoints/epoch=191-step=191.ckpt', r'data/sample_outputs/version_579', 'all_videos_single_observer'),
     #(r'log', r'data/sample_outputs/version_5xx', 'all_videos_single_observer')
 ])
 for _CHECKPOINT_PATH, _OUTPUT_DIR, partition in pbar_outer:
@@ -72,7 +62,7 @@ for _CHECKPOINT_PATH, _OUTPUT_DIR, partition in pbar_outer:
     for _MODE, _CALC_METRICS in [
         #('train', False),
         #('val', False),
-        #('train', True),
+        ('train', True),
         ('val', True),
     ]:
         pbar_outer.set_description(f"{_OUTPUT_DIR.split('/')[-1]}, _MODE: {_MODE}, _CALC_METRICS: {_CALC_METRICS}")
@@ -127,7 +117,7 @@ for _CHECKPOINT_PATH, _OUTPUT_DIR, partition in pbar_outer:
             changes_dist_pred, changes_deg_pred = [], []
 
         samples_per_clip = 5 if not _CALC_METRICS else 1
-        samples = 2 if not _CALC_METRICS else 500
+        samples = 2 if not _CALC_METRICS else 100
         pbar = tqdm(range(0, samples))
         for i in pbar:
             try:
@@ -147,8 +137,12 @@ for _CHECKPOINT_PATH, _OUTPUT_DIR, partition in pbar_outer:
             #print(video_name, observer)
 
             # Sample multiple scanpaths from same input to late average over metrics
-            y_hats = [model(sample['video'][None, :].to(device=device))[0].cpu().detach().numpy() for i in range(samples_per_clip)]
             y = sample['frame_labels']
+            if _TEACHER_FORCING_ON_INFERENCE:
+                y_teacher = y[None, :].to(device=device)
+            else:
+                y_teacher = None
+            y_hats = [model(sample['video'][None, :].to(device=device), y=y_teacher)[0].cpu().detach().numpy() for i in range(samples_per_clip)]
 
             # (C, F, H, W) -> (F, H, W, C)
             frames = torch.swapaxes(sample['video'].T, 0, 2)
