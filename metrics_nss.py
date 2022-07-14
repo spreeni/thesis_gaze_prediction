@@ -1,5 +1,11 @@
+"""
+Metrics to calculate Normalized Scanpath Saliency (NSS) on given scanpaths.
+
+Two options to calculate NSS:
+- Calculate gaussian density manually via NSSCalculator.create_gaussian_density()
+- Use KernelDensity from sklearn, but currently this leads to problems during normalization
+"""
 import os
-import sys
 
 import numpy as np
 from matplotlib import animation
@@ -255,7 +261,7 @@ class NSSCalculator:
         """
         Finds the mean and std of the trained KDE by sampling over the complete input space.
 
-        Here the resolution (n_samples) has a huge impact on the runtime (O = n_samples³)
+        Here the resolution (n_samples) has a huge impact on the runtime (O(n_samples) = n_samples³)
         """
         assert self.kde is not None, "No Kernel Density Estimator trained yet."
 
@@ -333,6 +339,11 @@ class NSSCalculator:
 
 
 def train_kde_on_all_vids(rootdir):
+    """
+    Calculate normalized KernelDensity on all videos in rootdir and save it for future NSS calculation.
+
+    Warning: Currently problems with normalization, use manual approach.
+    """
     for root, dirs, files in os.walk(rootdir):
         pbar = tqdm(dirs)
         for video_name in pbar:
@@ -345,6 +356,9 @@ def train_kde_on_all_vids(rootdir):
 
 
 def train_gaussian_density_on_all_vids(rootdir):
+    """
+    Calculate Normalized gaussian density on all videos in rootdir and save it for future NSS calculation.
+    """
     for root, dirs, files in os.walk(rootdir):
         pbar = tqdm(dirs)
         for video_name in pbar:
@@ -356,6 +370,9 @@ def train_gaussian_density_on_all_vids(rootdir):
 
 
 def animate_saliency_on_all_vids(rootdir):
+    """
+    Overlay gaussian density of observer ground truths over videos in given rootdir.
+    """
     for root, dirs, files in os.walk(rootdir):
         pbar = tqdm(dirs)
         for video_name in pbar:
@@ -367,13 +384,26 @@ def animate_saliency_on_all_vids(rootdir):
         break  # Only look at immediate directory content
 
 
-def score_gaussian_density(video, gaze, frame_ids=None):
+def score_gaussian_density(video: str, gaze: np.ndarray, frame_ids=None) -> float:
+    """
+    Calculate NSS for a scanpath for a given video.
+
+    Args:
+        video:      Video name (Gaussian density needs to have been calculated beforehand for this)
+        gaze:       Array of scanpath gaze positions with shape (n, 2)
+        frame_ids:  (Optional) If gaze predictions do not start at start of video, frame_ids have to be passed
+
+    Returns:
+        NSS score
+    """
     nss = NSSCalculator()
     nss.load_gaussian_density(os.path.join('metrics', 'gaussian_density', f'{video}.npy'))
     return nss.score_gaussian_density(gaze, frame_ids)
 
 
 if __name__ == "__main__":
+    # Testing NSS calculation on scanpath vs random prediction vs center prediction
+
     root = 'data/GazeCom/deepEM_classifier/ground_truth_framewise'
     root = 'data/GazeCom/movies_m2t_224x224/label_data'
     #train_kde_on_all_vids(root)

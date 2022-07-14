@@ -1,5 +1,5 @@
 """
-Taken from dido1998's RIM implementation https://github.com/dido1998/Recurrent-Independent-Mechanisms on 17/11/2021
+Taken and adjusted from dido1998's RIM implementation https://github.com/dido1998/Recurrent-Independent-Mechanisms on 17/11/2021
 """
 
 import torch
