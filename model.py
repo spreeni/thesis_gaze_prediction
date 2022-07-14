@@ -1,5 +1,13 @@
-from logging import log
-from os import X_OK
+"""
+Implementation of the proposed model in Pytorch Lightning.
+
+The model forward pass works as follows:
+    1. Visual features are extracted per frame with a Feature Pyramid Network
+    2. The temporal state of the prediction gets processed in Recurrent Independent Mechanisms (or alternatively a single LSTM)
+        2.1 In each step Teacher Forcing can be applied by randomly appending the previous model prediction or the
+            previous ground truth label to the RIM input
+    3. The hidden state of the RIM units gets condensed into a gaze prediction with Multihead-Attention
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -17,7 +25,8 @@ from feature_extraction import FeatureExtractor, FPN
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-LOG_DEBUG_INFO = False
+LOG_DEBUG_INFO = False  # Flag to log storage-intensive feature channels of Feature Pyramid network and input clips
+
 
 def log_tensor_as_video(model, frames, name, fps=5, interpolate_range=True):
     """
