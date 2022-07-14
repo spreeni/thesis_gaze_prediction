@@ -1,7 +1,10 @@
+"""
+Script to visualize ground truth labels over video.
+"""
 import utils
 
 VIDEO = 'holsten_gate'
-OBSERVER = 'AAW' # AAF
+OBSERVER = 'AAW'
 
 video_path = f'data/GazeCom/movies_m2t/{VIDEO}.m2t'
 label_dir = f'data/GazeCom/deepEM_classifier/ground_truth_framewise/{VIDEO}'

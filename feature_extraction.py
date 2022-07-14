@@ -1,3 +1,9 @@
+"""
+Implements the frame-wise feature extraction via a Feature Pyramid Network (FPN).
+
+- FeatureExtractor extracts the features of layers within a pre-trained CNN.
+- FPN implements the top-down process of upsampling the abstract features of later layers to the spatial resolution of earlier layers
+"""
 import torch
 import timm
 

@@ -1,4 +1,8 @@
+"""
+Implement option to seed random state to start with observer-specific initial states.
+"""
 import torch
+
 
 def seeded_random_states(target_shape, seeds, rand_fn=torch.randn):
     '''
@@ -16,8 +20,10 @@ def seeded_random_states(target_shape, seeds, rand_fn=torch.randn):
     torch.set_rng_state(state_old)
     return states
 
+
 def seeded_random_states_like(state_tensor, seeds, rand_fn=torch.randn):
     return seeded_random_states(state_tensor.size(), seeds, rand_fn=rand_fn)
+
 
 if __name__ == "__main__":
     s1 = seeded_random_states((5, 20), [1, 2, 3])
