@@ -1,3 +1,6 @@
+"""
+Helper functions to resize videos to new dimensions. Requires ffmpeg.
+"""
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
@@ -8,6 +11,7 @@ import numpy.lib.recfunctions as rfn
 from tqdm.auto import tqdm
 
 import utils
+
 
 logger = logging.getLogger(__name__)
 

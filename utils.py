@@ -1,3 +1,6 @@
+"""
+General Helper functions to e.g. read label files or visualize gaze labels.
+"""
 import logging
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, Type
 
@@ -13,6 +16,7 @@ from scipy.io.arff import loadarff
 import shutil
 import subprocess
 from tqdm.auto import tqdm
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +78,15 @@ def read_label_file(
 
 
 def get_observer_and_video_from_label_path(label_path: str) -> Tuple[str, str]:
+    """
+    Extracts observer and video name from a given label path (e.g. 'AAW_golf.txt').
+
+    Args:
+        label_path: Filepath of label file
+
+    Returns:
+        observer_name, video_name
+    """
     file_name = os.path.basename(label_path)
     assert len(file_name) > 0 and '_' in file_name, f"{label_path} is not a valid label-file path."
 
@@ -509,6 +522,17 @@ def plot_gaze_change_dist_and_orientation(change_len, change_deg, output_path, u
 
 
 def get_label_data_in_directory(root_dirs: Union[str, List[str]]) -> Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+    """
+    Retrieves all ground truth labels in given root directories and returns a dictionary with the labels per video and observer.
+
+    Searches for .txt-files.
+
+    Args:
+        root_dirs:  Single directory or list of directory-paths
+
+    Returns:
+        label_data: dict(video -> dict(observer -> (gaze_data, em_data)))
+    """
     label_data = dict()  # video -> dict(observer -> (gaze_data, em_data))
 
     if type(root_dirs) == str:
@@ -530,6 +554,15 @@ def get_label_data_in_directory(root_dirs: Union[str, List[str]]) -> Dict[str, D
 
 
 def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """
+    Retrieves stacked gaze change length and orientation for each observer over all videos.
+
+    Args:
+        root_dir:   Root directory of label files
+
+    Returns:
+        observer_change_len_deg:    dict(observer -> (stacked_change_length, stacked_change_orientation))
+    """
     label_data = get_label_data_in_directory(root_dir)
 
     stacked_observer_gaze_change = dict()
@@ -558,6 +591,15 @@ def get_gaze_change_distribution_for_observers(root_dir: str) -> Dict[str, Tuple
 
 
 def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """
+        Retrieves stacked gaze change length and orientation for each video over all observers.
+
+        Args:
+            root_dir:   Root directory of label files
+
+        Returns:
+            video_change_len_deg:    dict(video -> (stacked_change_length, stacked_change_orientation))
+        """
     label_data = get_label_data_in_directory(root_dir)
 
     video_change_len_deg = dict()
@@ -582,12 +624,26 @@ def get_gaze_change_distribution_for_videos(root_dir: str) -> Dict[str, Tuple[np
 
 
 def plot_gaze_change_dist_and_orientation_for_observers(root_dir: str, output_dir: str):
+    """
+    Visualizes gaze change length and orientation distributions for observers and saves it to an output directory.
+
+    Args:
+        root_dir:   Root directory of label files
+        output_dir: Directory where to save the visualizations
+    """
     observer_change_len_deg = get_gaze_change_distribution_for_observers(root_dir)
     for observer in tqdm(observer_change_len_deg):
         plot_gaze_change_dist_and_orientation(*observer_change_len_deg[observer], f'{output_dir}/{observer}', use_plotly=True)
 
 
 def plot_gaze_change_dist_and_orientation_for_videos(root_dir: str, output_dir: str):
+    """
+    Visualizes gaze change length and orientation distributions for videos and saves it to an output directory.
+
+    Args:
+        root_dir:   Root directory of label files
+        output_dir: Directory where to save the visualizations
+    """
     video_change_len_deg = get_gaze_change_distribution_for_videos(root_dir)
     for video in tqdm(video_change_len_deg):
         plot_gaze_change_dist_and_orientation(*video_change_len_deg[video], f'{output_dir}/{video}', use_plotly=True)
