@@ -3,6 +3,12 @@ Model implementation of Yannic Spreen-Ledebur Master's thesis on dynamic gaze pr
 
 This repository contains the model implementation in Pytorch Lightning as well as multiple functionalities for gaze visualization, prediction evaluation and data transformation.
 
+## Model architecture
+
+<img src="diagrams/model_architecture.png" width=80% alt="model architecture" style="display: block; margin-left: auto; margin-right: auto;">
+
+At each time step 𝑡 the corresponding frame 𝐼<sub>𝑡</sub> is processed in a Feature Pyramid network (Lin et al. 2016), where image features are extracted in a bottom-up convolutional process which then are merged into an upsampled spatial feature map in a top-down process. The resulting feature vector is then flattened and input into the recurrent unit which also receives its previous state ℎ<sub>𝑡−1</sub>. After processing, the new hidden state ℎ<sub>𝑡</sub> is fed through a multiheaded self-attention layer to aggregate the state into 2 scalars. After normalizing with a tanh-activation a pixel gaze position 𝑦ˆ<sub>𝑡</sub> is predicted.
+
 ## Expected data structure and format
 For model training, the data is expected to be organized as follows
 ```
