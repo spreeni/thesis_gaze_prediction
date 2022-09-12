@@ -40,6 +40,7 @@ data
 `video_data` contains the video data for each video. We extracted frames from the videos and stored them as individual frame images. The data loader theoretically also supports video files, however frame indices are then not read out which we require for further calculations.
 
 <br>
+
 ## Usage Examples
 #### 1. Training the model
 In order to to train the model, the `train_model` function in `model.py` can be used.
@@ -58,6 +59,7 @@ The training checkpoints and Lightning hyperparameters will be saved by Pytorch 
 For modifications in the clip sampling, the data loader in `gaze_video_data_module.py` can be modified.
 
 <br>
+
 #### 2. Sampling from a trained model
 In order to sample predictions from a trained model and optionally evaluate and visualize these, the function `sample_model` in `sample_model.py` can be utilised.
 
@@ -74,6 +76,7 @@ To use `sample_model` to visualize model predictions over 2 samples, set `calc_m
 To use `sample_model` to evaluate predictive performance quantitatively over 100 random samples, set `calc_metrics=True`. NSS scores and gaze change distributions are calculated over this set of samples.
 
 <br>
+
 #### 3. Visualizing gaze
 In order to visualize gaze ground truth labels and model predictions over the video data, `plot_frames_with_labels` in `utils.py` can be used. It visualizes video frames with bounding boxes for gaze data points.
 
@@ -93,6 +96,7 @@ plot_gazecom_frames_with_all_observers(video_path: str, label_dir: str, plot_em_
 
 
 <br>
+
 ## Feature branches
 - `change_prediction`: Instead of absolute gaze, train the model to predict frame-wise gaze changes instead. This is hoped to counter-act center bias in predictions, but training results were very poor in our case.
 - `positional_encoding`: To enhance the spatial information given to the RIM units, positional encoding can be applied to the features extracted in the Feature Pyramid Network. We do this through a learned additive encoding. In tests, we could not see a substantial improvement in model performance however.
