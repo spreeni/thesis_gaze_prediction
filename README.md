@@ -1,5 +1,5 @@
 # Gaze Prediction in Natural Videos using End-to-End Deep Learning
-Model implementation of Yannic Spreen-Ledebur Master's thesis on dynamic gaze prediction.
+Model implementation of Yannic Spreen-Ledebur's masters thesis on dynamic gaze prediction in natural videos.
 
 This repository contains the model implementation in Pytorch Lightning as well as multiple functionalities for gaze visualization, prediction evaluation and data transformation.
 
